@@ -192,6 +192,7 @@ void loadprefixes(const char* fname)
   char mask[30];
   while(inFile >> pref)
     {
+      cout<<"Prefix "<<pref<<endl;
       char* ptr = strstr(pref, "/");
       if (ptr == NULL)
 	continue;

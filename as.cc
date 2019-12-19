@@ -63,9 +63,12 @@
 #include <cppconn/statement.h>
 #include <cppconn/prepared_statement.h>
 
+// Limits
+#include<bits/stdc++.h> 
 
 #include "utils.h"
 
+char saveline[MAXLINE];
 #define BILLION 1000000000L
 
 using namespace std;
@@ -152,7 +155,9 @@ int verbose = 0;
 
 double firsttime = 0;       // Beginning of trace 
 long freshtime = 0;       // Where we last ended when processing data 
-double firsttimeinfile = 0; // First time in the current file 
+double firsttimeinfile = 0; // First time in the current file
+long int allflows = 0;          // How many flows were processed total
+long int processedflows = 0;    // How many flows were processed this second
 long updatetime = 0;      // Time of last stats update
 long statstime = 0;       // Time when we move the stats to history 
 char filename[MAXLINE];   // A string to hold filenames
@@ -183,7 +188,6 @@ sql::ResultSet *res;
 
 
 // Keeping track of procesed flows
-long int processedflows = 0;
 long int processedbytes = 0;
 int nl = 0;
 int l = 0;
@@ -401,11 +405,15 @@ int match(flow_t flow, flow_t sig)
 }
 
 // Is this timestamp within the range, which we expect in a given input file
-int malformed(long timestamp)
+int malformed(double timestamp)
 {
-  if (timestamp < firsttimeinfile || timestamp > firsttimeinfile +
-      parms["file_interval"])
-    return 1;
+  // Give some space here in case we're a few ms off
+  if (timestamp < firsttimeinfile-1 || (parms["file_interval"] > 0 && timestamp > firsttimeinfile +
+				      parms["file_interval"]))
+    {
+      cout<<"Malformed "<<timestamp<<" first time "<<firsttimeinfile-1<<endl;
+      return 1;
+    }
   return 0;
 }
 
@@ -420,29 +428,32 @@ bool shouldFilter(int bucket, flow_t flow)
 }
 long votedtime = 0;
 int votes = 0;
+const int MINVOTES = 1; // usually at 5 but for Flowride we set it to 0
+ 
 
 // Main function, which processes each flow
 void
 amonProcessing(flow_t flow, int len, double start, double end, int oci)
 {
   // Detect if the flow is malformed and reject it
-  if (malformed(start) || malformed(end))
+  if (malformed(end))
     {
       mal++;
+      cout<<"Malformed "<<start<<" end "<<end<<endl;
       return;
     }
   // Standardize time
   if (curtime == 0)
     curtime = start;
-  if (start > curtime)
+  if (end > curtime)
     {
       if (votes == 0)
-	votedtime = (int)start;
-      if ((int)start == votedtime)
+	votedtime = (int)end;
+      if ((int)end == votedtime)
 	votes++;
       else
 	votes--;
-      if (votes >= 5)
+      if (votes >= MINVOTES)
 	{
 	  curtime = start;
 	  votedtime = 0;
@@ -668,8 +679,8 @@ void update_stats(cell* c)
     {
       if (!training_done)
 	{
-	  training_done = true;
 	  cout<<"Training has completed\n";
+	  training_done = true;
 	}
       trained = 0;
      
@@ -693,7 +704,7 @@ void findBestSignature(int i, cell* c)
   flow_t bestsig;
   int oci = 0;
   int maxoci = 0;
-  int totoci = c->databrick_s[i];
+  int totoci = c->databrick_s[i]; //here we may want to subtract mean + 3*std
   
   // Go through candidate signatures
   for (int s=1; s<NF; s++)
@@ -763,6 +774,13 @@ void findBestSignature(int i, cell* c)
       out<<" "<<roci<<" ";
       out<<printsignature(bestsig)<<endl;
       out.close();
+      // Check if we should rotate file
+      ifstream in("alerts.txt", std::ifstream::ate | std::ifstream::binary);
+      if (in.tellg() > 10000000)
+	{
+	  system("./rotate");
+	}
+      
       // Now remove abnormal measure and samples, we're done
       is_abnormal[i] = 0;
       // Clear samples
@@ -788,7 +806,7 @@ void findBestSignature(int i, cell* c)
 void detect_attack(cell* c)
 {
   // If verbose, output debugging statistics into DB
-  if (false) // Jelena verbose
+  if (verbose)
     {
       sql::PreparedStatement *stmt;
       DataBuf buffer((char*)c, sizeof(cell));
@@ -947,12 +965,13 @@ amonProcessingPcap (pcap_pkthdr* hdr, u_char* p, double time)
 void
 amonProcessingFlowride(char* line, double start)
 {
-  /* 1561501151614779410     UDP     ACTIVE  x       129.82.138.39   192.55.83.30    14597   13568   4       313     1561501153614905585 */
+
+  /* 1576613068700777885	ICMP	ACTIVE	x	129.82.138.44	46.167.131.0	0	0	1	0	60	0	0	8	0	1	0	60	0	1576613073700960814 */
   // Line is already parsed
   char send[MAXLINE], rend[MAXLINE];
-  strncpy(send, line+delimiters[9],10);
+  strncpy(send, line+delimiters[18],10);
   send[10] = 0;
-  strncpy(rend, line+delimiters[9]+10,9);
+  strncpy(rend, line+delimiters[18]+10,9);
   rend[9] = 0;
   double end = (double)atoi(send) + (double)atoi(rend)/1000000000;
   double dur = end - start;
@@ -961,14 +980,14 @@ amonProcessingFlowride(char* line, double start)
     dur = 0;
   if (dur > 3600)
     dur = 3600;
-  int pkts, bytes;
+  int pkts, bytes, rpkts, rbytes, pktsdir, pktsrev;
 
   // Get source and destination IP and port and protocol 
   flow_t flow;
   int proto;
-  if (strcmp(line+delimiters[4], "UDP") == 0)
+  if (strcmp(line+delimiters[0], "UDP") == 0)
     proto = UDP;
-  else if (strcmp(line+delimiters[4], "TCP") == 0)
+  else if (strcmp(line+delimiters[0], "TCP") == 0)
     proto = TCP;
   else
     proto = 0;
@@ -980,7 +999,13 @@ amonProcessingFlowride(char* line, double start)
   flow.proto = proto;
   flow.slocal = islocal(flow.src);
   flow.dlocal = islocal(flow.dst);
-  bytes = atoi(line+delimiters[8]);
+  bytes = atoi(line+delimiters[9]);
+  rbytes = atoi(line+delimiters[10]);
+  pktsdir = atoi(line+delimiters[14]);
+  pktsrev = atoi(line+delimiters[15]);
+  // Closed flow, no need to do anything
+  if (pktsdir == 0 && pktsrev == 0)
+    return;
   processedbytes+=bytes;
 
   // Cross-traffic, do nothing
@@ -990,14 +1015,64 @@ amonProcessingFlowride(char* line, double start)
       return;
     }
   l++;
-  //int flags = atoi(line+delimiters[19]); return the flags part later
+  int flags = atoi(line+delimiters[11]);
   pkts = atoi(line+delimiters[7]);
+  rpkts = atoi(line+delimiters[8]);
   pkts = (int)(pkts/(dur+1))+1;
   bytes = (int)(bytes/(dur+1))+1;
+  rpkts = (int)(rpkts/(dur+1))+1;
+  rbytes = (int)(rbytes/(dur+1))+1;
 
-  int oci = pkts;
+  /* Is this outstanding connection? For TCP, connections without 
+     PUSH are outstanding. For UDP, connections that have a request
+     but not a reply are outstanding. Because bidirectional flows
+     may be broken into two unidirectional flows we have values of
+     0, -1 and +1 for outstanding connection indicator or oci. For 
+     TCP we use 0 (there is a PUSH) or 1 (no PUSH) and for UDP/ICMP we 
+     use +1 for requests and -1 for replies. */
+  int oci, roci = 0;
+  if (proto == TCP)
+    {
+      // There is a PUSH flag
+      if ((flags & 8) > 0)
+	{
+	  oci = 0;
+	  roci = 0;
+	}
+      else
+	{
+	  oci = pkts;
+	  roci = rpkts;
+	}
+    }
+  else if (proto == UDP)
+    {
+      oci = pkts;
+      roci = rpkts;
+    }
+  else
+    // unknown proto
+    {
+      oci = pkts;
+      roci = rpkts;
+    }
   
-  amonProcessing(flow, bytes, start, end, oci); 
+  amonProcessing(flow, bytes, start, end, oci);
+  // Now account for reverse flow too, if needed
+  if (rbytes > 0)
+    {
+      flow_t rflow;
+      rflow.src = flow.dst;
+      rflow.sport = flow.dport;
+      rflow.dst = flow.src;
+      rflow.dport = flow.sport;
+      rflow.proto = flow.proto;
+      rflow.slocal = flow.dlocal;
+      rflow.dlocal = flow.slocal;
+      
+      amonProcessing(rflow, rbytes, start, end, roci);
+    }
+  
 }
 
 // Read nfdump flow format
@@ -1080,6 +1155,7 @@ void *reset_transmit (void* passed_parms)
 {
   // Serialize access to cells
   pthread_mutex_lock (&cells_lock);
+  cout<<"RS locked\n";
 
   lasttime = curtime;
   // We will process this one now
@@ -1092,6 +1168,7 @@ void *reset_transmit (void* passed_parms)
   
   // Serialize access to cells
   pthread_mutex_unlock (&cells_lock);
+  cout<<"RS unlocked\n";
   
   cell* c = &cells[current];
   
@@ -1168,7 +1245,9 @@ void
 printHelp (void)
 {
   printf ("amon-senss\n(C) 2018 University of Southern California.\n\n");
-  printf ("-h                             Print this help\n");
+
+    printf ("-h                             Print this help\n");
+    printf ("-S                             Streaming input in Flowride format\n");
   printf ("-r <inputfile or inputfolder>  Input is in given file or folder, supports and self-detects nfdump, flow-tools, pcap and flowride formats\n");
   printf ("-l                             Load historical data from as.dump\n");
   printf ("-s                             Start from this given file in the input folder\n");
@@ -1177,6 +1256,59 @@ printHelp (void)
   printf ("-v                             Verbose\n");
 }
 
+
+// File or stream processing function
+void processLine(std::function<void(char*, double)> func, int num_pkts, char* line, double epoch, double& start)
+{
+  // For now, if this is IPv6 flow ignore it
+  if (strstr(line, ":") != 0)
+    return;
+  if (num_pkts == 0)
+    firsttime = epoch;
+  num_pkts++;
+  if (firsttimeinfile == 0)
+    firsttimeinfile = epoch;
+  allflows++;
+  processedflows++;
+  if (allflows == INT_MAX)
+    allflows = 0;
+  if (allflows % 1000000 == 0)
+    {
+      double diff = time(0) - start;
+      cout<<"Processed "<<allflows<<", 1M in "<<diff<<" curtime "<<curtime<<" last "<<lasttime<<endl;
+      start = time(0);
+    }
+  // Each second
+  int diff = curtime - lasttime;
+  if (curtime - lasttime >= 1) 
+    {
+      pthread_mutex_lock (&cells_lock);
+      cout<<std::fixed<<"Done "<<time(0)<<" curtime "<<curtime<<" flows "<<processedflows<<endl;
+      // This one we will work on next
+      crear = (crear + 1)%QSIZE;
+      if (crear == cfront && !cempty)
+	{
+	  perror("QSIZE is too small\n");
+	  exit(1);
+	}
+      // zero out stats
+      cell* c = &cells[crear];
+      memset(c->databrick_p, 0, BRICK_DIMENSION*sizeof(int));
+      memset(c->databrick_s, 0, BRICK_DIMENSION*sizeof(int));
+      memset(c->wfilter_p, 0, BRICK_DIMENSION*sizeof(unsigned int));
+      memset(c->wfilter_s, 0, BRICK_DIMENSION*sizeof(int));	  
+      // and it will soon be full
+      cempty = false;
+      pthread_mutex_unlock (&cells_lock);
+      
+      pthread_t thread_id;
+      pthread_create (&thread_id, NULL, reset_transmit, NULL);
+      pthread_detach(thread_id);
+      processedflows = 0;
+      lasttime = curtime;
+    }
+  func(line, epoch);
+}
 
 // Main program
 int main (int argc, char *argv[])
@@ -1193,9 +1325,10 @@ int main (int argc, char *argv[])
   
   char c, buf[32];
   char *file_in = NULL;
+  bool stream_in = false;
   char *startfile = NULL, *endfile = NULL;
   
-  while ((c = getopt (argc, argv, "hvlr:s:e:f")) != '?')
+  while ((c = getopt (argc, argv, "hvlr:s:e:fS")) != '?')
     {
       if ((c == 255) || (c == -1))
 	break;
@@ -1205,6 +1338,9 @@ int main (int argc, char *argv[])
 	case 'h':
 	  printHelp ();
 	  return (0);
+	  break;
+	case 'S':
+	  stream_in = true;
 	  break;
 	case 'r':
 	  file_in = strdup(optarg);
@@ -1229,7 +1365,7 @@ int main (int argc, char *argv[])
 	  break;
 	}
     }
-  if (file_in == NULL)
+  if (file_in == NULL && stream_in == 0)
     {
       cerr<<"You must specify an input folder, which holds Netflow records\n";
       exit(-1);
@@ -1300,11 +1436,13 @@ int main (int argc, char *argv[])
       tracefiles.push_back(file_in);
       
       std::sort(tracefiles.begin(), tracefiles.end(), sortbyFilename());
-
+      for (vector<string>::iterator vit=tracefiles.begin(); vit != tracefiles.end(); vit++)
+	{
+	  cout<<"Files to read "<<vit->c_str()<<endl;
+	}
       int started = 1;
       if (startfile != NULL)
 	started = 0;
-      int allflows = 0;
       double start = time(0);
       // Go through tracefiles and read each one
       // Jelena: should delete after reading
@@ -1346,13 +1484,14 @@ int main (int argc, char *argv[])
 		sprintf(cmd,"ft2nfdump -r %s -c 1 2>/dev/null", file);
 		ft = popen(cmd, "r");
 		int error2 = pclose(ft);
+				
 		if (error1 == 64000 && error2 == 0)
 		  {
 		    sprintf(cmd,"ft2nfdump -r %s | nfdump -r - -o pipe", file);
 		    nf = popen(cmd, "r");
 		    
 		  }
-		else if (error1 < 64000)
+		else if (error1 < 32000)
 		  {
 		    nf = popen(cmd, "r");
 		  }
@@ -1363,7 +1502,7 @@ int main (int argc, char *argv[])
 		    // Add magic check here
 		    char line[MAXLINE];
 		    FILE* pFile = fopen (file, "r");
-
+		    cout<<"Reading from "<<file<<endl;
 		    if (pFile)
 		      {
 			while (true)
@@ -1371,59 +1510,39 @@ int main (int argc, char *argv[])
 			    char* rc = fgets(line, MAXLINE-1, pFile);
 			    if (rc == 0)
 			      break;
-			    
-			    int dl = parse(line,'\t', &delimiters);
-			    if (dl != 10)
-			      continue;
+
+			    char* sline = line;
+
+			    // Sanity check for Flowride to get rid of stray chars
+			    int i = strlen(line)-1;
+			    int found = 0;
+			    for(; i>0; i--)
+			      {
+				if (line[i] == '\t')
+				  found++;
+				if (found == 19)
+				  {
+				    i-=19;
+				    break;
+				  }
+			      }
+			    if (i > 0 && found == 19)
+			      {
+				cout<<"Corrected "<<line<<endl;
+				sline = line+i;
+			      }
+			    int dl = parse(sline,'\t', &delimiters);
+			    if (dl != 19)
+			      {
+				continue;
+			      }
 			    char sstart[MAXLINE], rstart[MAXLINE];
-			    strncpy(sstart, line,10);
+			    strncpy(sstart, sline+delimiters[18],10);
 			    sstart[10] = 0;
-			    strncpy(rstart, line+10,9);
+			    strncpy(rstart, sline+delimiters[18]+10,9);
 			    rstart[9] = 0;
 			    double epoch = (double)atoi(sstart)+(double)atoi(rstart)/1000000000;
-			    if (num_pkts == 0)
-			      firsttime = epoch;
-			    num_pkts++;
-			    if (firsttimeinfile == 0)
-			      firsttimeinfile = epoch;
-			    allflows++;
-			    if (allflows % 1000000 == 0)
-			      {
-				double diff = time(0) - start;
-				cout<<"Processed "<<allflows<<", 1M in "<<diff<<endl;
-				start = time(0);
-			      }
-			    processedflows++;
-			    // Each second
-			    if (curtime - lasttime >= 1) 
-			      {
-				pthread_mutex_lock (&cells_lock);
-				cout<<std::fixed<<"Done "<<time(0)<<" curtime "<<curtime<<" flows "<<processedflows<<endl;
-		    
-				// This one we will work on next
-				crear = (crear + 1)%QSIZE;
-				if (crear == cfront && !cempty)
-				  {
-				    perror("QSIZE is too small\n");
-				    exit(1);
-				  }
-				// zero out stats
-				cell* c = &cells[crear];
-				memset(c->databrick_p, 0, BRICK_DIMENSION*sizeof(int));
-				memset(c->databrick_s, 0, BRICK_DIMENSION*sizeof(int));
-				memset(c->wfilter_p, 0, BRICK_DIMENSION*sizeof(unsigned int));
-				memset(c->wfilter_s, 0, BRICK_DIMENSION*sizeof(int));	  
-				// and it will soon be full
-				cempty = false;
-				pthread_mutex_unlock (&cells_lock);
-				
-				pthread_t thread_id;
-				pthread_create (&thread_id, NULL, reset_transmit, NULL);
-				pthread_detach(thread_id);
-				processedflows = 0;
-				lasttime = curtime;
-			      }
-			    amonProcessingFlowride(line, epoch);
+			    processLine(amonProcessingFlowride, num_pkts, sline, epoch, start);
 			  }
 		      }
 		  }
@@ -1583,11 +1702,55 @@ int main (int argc, char *argv[])
 		  }
 	      }
 	  }
-	cout<<"Done with the file "<<file<<" time "<<time(0)<<endl;
+	cout<<"Done with the file "<<file<<" time "<<time(0)<<" flows "<<allflows<<endl;
 	pclose(nf);
 	if (endfile && strstr(file,endfile) != 0)
 	  break;
       }
+    }
+  else if (stream_in)
+    {
+      // Could replace this with reading directly from stream
+      char line[MAXLINE];
+      double start = time(0);
+      while (true)
+	{
+	  char* rc = fgets(line, MAXLINE-1, stdin);
+	  char* sline = line;
+	  if (rc == 0)
+	    break;
+
+	  // Sanity check for Flowride to get rid of stray chars
+	  int i = strlen(line)-1;
+	  int found = 0;
+	  for(; i>0; i--)
+	    {
+	      if (line[i] == '\t')
+		found++;
+	      if (found == 19)
+		{
+		  i-=19;
+		  break;
+		}
+	    }
+	  if (i > 0 && found == 19)
+	    {
+	      sline = line+i;
+	    }
+	  //strcpy(saveline, line);
+	  int dl = parse(sline,'\t', &delimiters);
+	  if (dl != 19)
+	    {
+	      continue;
+	    }
+	  char sstart[MAXLINE], rstart[MAXLINE];
+	  strncpy(sstart, sline,10);
+	  sstart[10] = 0;
+	  strncpy(rstart, sline+10,9);
+	  rstart[9] = 0;
+	  double epoch = (double)atoi(sstart)+(double)atoi(rstart)/1000000000;
+	  processLine(amonProcessingFlowride, num_pkts, sline, epoch, start);
+	}
     }
   save_history();
   return 0;
