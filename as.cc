@@ -73,6 +73,16 @@ char saveline[MAXLINE];
 
 using namespace std;
 
+
+// Buffer data being read so that we can
+// save evidence of attacks if needed
+// and process the rest in a streaming fashion
+const int MAXDEPTH=100000;
+char evidence[MAXDEPTH][MAXLINE];
+int curline = 0;
+int startline = 0;
+int numattack = 0;
+
 // We store delimiters in this array
 int* delimiters;
 
@@ -166,10 +176,13 @@ struct timespec last_entry;
 // Is this pcap file or flow file? Default is flow
 bool is_pcap = false;
 bool is_live = false;
+bool is_nfdump = false;
+bool is_flowride = false;
 
 // Serialize access to statistics
 pthread_mutex_t cells_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t sql_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t cnt_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // Types of statistics. If this changes, update the entire section 
 enum period{cur, hist};
@@ -444,7 +457,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
     }
   // Standardize time
   if (curtime == 0)
-    curtime = start;
+    curtime = end;
   if (end > curtime)
     {
       if (votes == 0)
@@ -455,7 +468,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	votes--;
       if (votes >= MINVOTES)
 	{
-	  curtime = start;
+	  curtime = end;
 	  votedtime = 0;
 	  votes = 0;
 	}
@@ -569,6 +582,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	      c->databrick_p[d_bucket] += len;
 	      c->databrick_s[d_bucket] += oci;
 	      addSample(d_bucket, &fp, way);
+	      cout<<"Way "<<way<<" bucket "<<d_bucket<<" len "<<c->databrick_p[d_bucket]<<" oci "<<c->databrick_s[d_bucket]<<endl;
 	    }
 	  if (flow.slocal)
 	    {
@@ -630,6 +644,11 @@ int abnormal(int type, int index, cell* c)
     data = c->databrick_p[index];
   else
     data = c->databrick_s[index];
+  // If we don't have enough samples return 0
+  if (stats[hist][n][type][index] <
+      parms["min_train"]*MIN_SAMPLES)
+    return 0;
+
   // Volume larger than mean + numstd*stdev is abnormal 
   if (data > mean + parms["numstd"]*std)
     {
@@ -672,10 +691,13 @@ void update_stats(cell* c)
 		    (data-ao)*(data - stats[cur][avg][j][i]);
 		}
 	    }
-	}
+	  if (i == 1893)
+	    cout<<" i "<<i<<" j "<<j<<" cur avg "<<stats[cur][avg][j][i]<<" ss "<<stats[cur][ss][j][i]<<" n "<<stats[cur][n][j][i]<<endl;
+	}      
     }
-  trained++;
-  if (trained == parms["min_train"])
+  trained = (lasttime - firsttime);
+  //cout<<"Trained "<<trained<<" lasttime "<<lasttime<<" firsttime "<<firsttime<<endl; // Jelena
+  if (trained >= parms["min_train"])
     {
       if (!training_done)
 	{
@@ -692,7 +714,9 @@ void update_stats(cell* c)
 	    // If the attack was long maybe we don't
 	    if (stats[cur][n][j][i] <
 		parms["min_train"]*MIN_SAMPLES)
+	      {
 		continue;
+	      }
 	    stats[hist][x][j][i] = stats[cur][x][j][i];
 	    stats[cur][x][j][i] = 0;
 	  }
@@ -767,13 +791,29 @@ void findBestSignature(int i, cell* c)
       // Write the start of the attack into alerts
       ofstream out;
       
-
+      pthread_mutex_lock(&cnt_lock);
+      int na = numattack++;
+      
       out.open("alerts.txt", std::ios_base::app);
-      out<<i/BRICK_UNIT<<" "<<(long)curtime<<" ";
+      out<<na<<" "<<i/BRICK_UNIT<<" "<<(long)curtime<<" ";
       out<<"START "<<i<<" "<<rate;
       out<<" "<<roci<<" ";
       out<<printsignature(bestsig)<<endl;
       out.close();
+      pthread_mutex_unlock(&cnt_lock);
+
+      cout<<"EVI: "<<i<<" saved in "<<na<<endl;
+      // Save evidence of attack
+      char filename[MAXLINE];
+      sprintf(filename, "/mnt/senss/evidence/attack%d", na);
+      out.open(filename, std::ios_base::app);
+      for (int i=startline; i != curline; i = (i+1)%MAXDEPTH)
+	  out<<evidence[i];
+      out.close();
+      
+      // Get ready for new evidence
+      startline = curline = 0;
+      
       // Check if we should rotate file
       ifstream in("alerts.txt", std::ifstream::ate | std::ifstream::binary);
       if (in.tellg() > 10000000)
@@ -837,7 +877,6 @@ void detect_attack(cell* c)
 	    int res = stmt->executeUpdate();
 	    if (res)
 	      {
-		cout<<"Executed one update"<<pthread_self()<<endl;
 		succ = true;
 	      }	    
 	  }
@@ -1056,7 +1095,7 @@ amonProcessingFlowride(char* line, double start)
       oci = pkts;
       roci = rpkts;
     }
-  
+  //cout<<"Start "<<start<<" end "<<end<<" dur "<<dur<<" bytes "<<bytes<<" oci "<<oci<<" line "<<saveline<<" flags "<<flags<<endl; // Jelena
   amonProcessing(flow, bytes, start, end, oci);
   // Now account for reverse flow too, if needed
   if (rbytes > 0)
@@ -1071,6 +1110,7 @@ amonProcessingFlowride(char* line, double start)
       rflow.dlocal = flow.slocal;
       
       amonProcessing(rflow, rbytes, start, end, roci);
+      //cout<<"Start "<<start<<" end "<<end<<" dur "<<dur<<" rbytes "<<rbytes<<" roci "<<roci<<" line "<<saveline<<" flags "<<flags<<endl; // Jelena
     }
   
 }
@@ -1082,7 +1122,6 @@ amonProcessingNfdump (char* line, double time)
   /* 2|1453485557|768|1453485557|768|6|0|0|0|2379511808|44694|0|0|0|2792759296|995|0|0|0|0|2|0|1|40 */
   // Get start and end time of a flow
   char* tokene;
-  char saveline[MAXLINE];
   parse(line,'|', &delimiters);
   double start = (double)strtol(line+delimiters[0], &tokene, 10);
   start = start + strtol(line+delimiters[1], &tokene, 10)/1000.0;
@@ -1179,6 +1218,7 @@ void *reset_transmit (void* passed_parms)
   if (training_done)
     detect_attack(c);
   update_stats(c);
+
   std::cout.precision(5);
 
     // Detect attack here
@@ -1260,11 +1300,11 @@ printHelp (void)
 // File or stream processing function
 void processLine(std::function<void(char*, double)> func, int num_pkts, char* line, double epoch, double& start)
 {
+  
+  //cout<<"Processing "<<line<<endl; // Jelena
   // For now, if this is IPv6 flow ignore it
   if (strstr(line, ":") != 0)
     return;
-  if (num_pkts == 0)
-    firsttime = epoch;
   num_pkts++;
   if (firsttimeinfile == 0)
     firsttimeinfile = epoch;
@@ -1307,13 +1347,14 @@ void processLine(std::function<void(char*, double)> func, int num_pkts, char* li
       processedflows = 0;
       lasttime = curtime;
     }
-  func(line, epoch);
+  func(line, start);
 }
 
 // Main program
 int main (int argc, char *argv[])
 {  
   delimiters = (int*)malloc(AR_LEN*sizeof(int));
+  memset(evidence, 0, MAXDEPTH*MAXLINE);
   memset(is_attack, 0, BRICK_DIMENSION*sizeof(int));
   memset(is_abnormal, 0, BRICK_DIMENSION*sizeof(int));
   // Parse configuration
@@ -1489,11 +1530,12 @@ int main (int argc, char *argv[])
 		  {
 		    sprintf(cmd,"ft2nfdump -r %s | nfdump -r - -o pipe", file);
 		    nf = popen(cmd, "r");
-		    
+		    is_nfdump = true; // technically it is flowtools
 		  }
 		else if (error1 < 32000)
 		  {
 		    nf = popen(cmd, "r");
+		    is_nfdump = true;
 		  }
 		// could be Flowride
 		else
@@ -1502,48 +1544,30 @@ int main (int argc, char *argv[])
 		    // Add magic check here
 		    char line[MAXLINE];
 		    FILE* pFile = fopen (file, "r");
-		    cout<<"Reading from "<<file<<endl;
 		    if (pFile)
 		      {
-			while (true)
+			char* rc = fgets(line, MAXLINE-1, pFile);
+			if (rc == 0)
+			  break;
+			
+			// Check for Flowride format, first line only
+			int i = strlen(line)-1;
+			int found = 0;
+			for(; i>0; i--)
 			  {
-			    char* rc = fgets(line, MAXLINE-1, pFile);
-			    if (rc == 0)
-			      break;
-
-			    char* sline = line;
-
-			    // Sanity check for Flowride to get rid of stray chars
-			    int i = strlen(line)-1;
-			    int found = 0;
-			    for(; i>0; i--)
+			    if (line[i] == '\t')
+			      found++;
+			    if (found == 19)
 			      {
-				if (line[i] == '\t')
-				  found++;
-				if (found == 19)
-				  {
-				    i-=19;
-				    break;
-				  }
+				i-=19;
+				break;
 			      }
-			    if (i > 0 && found == 19)
-			      {
-				cout<<"Corrected "<<line<<endl;
-				sline = line+i;
-			      }
-			    int dl = parse(sline,'\t', &delimiters);
-			    if (dl != 19)
-			      {
-				continue;
-			      }
-			    char sstart[MAXLINE], rstart[MAXLINE];
-			    strncpy(sstart, sline+delimiters[18],10);
-			    sstart[10] = 0;
-			    strncpy(rstart, sline+delimiters[18]+10,9);
-			    rstart[9] = 0;
-			    double epoch = (double)atoi(sstart)+(double)atoi(rstart)/1000000000;
-			    processLine(amonProcessingFlowride, num_pkts, sline, epoch, start);
 			  }
+			if (!(i > 0 && found == 19))
+			  {
+			    is_flowride = true;
+			  }
+			fclose(pFile);
 		      }
 		  }
 	      }
@@ -1569,7 +1593,7 @@ int main (int argc, char *argv[])
 	cout<<"Reading from "<<file<<endl;
 	firsttimeinfile = 0;
 
-	if (!is_pcap)
+	if (is_nfdump)
 	  {
 	    while (fgets(line, MAXLINE, nf) != NULL)
 	      {
@@ -1587,7 +1611,7 @@ int main (int argc, char *argv[])
 		token = strtok(NULL, "|");
 		int usec = atoi(token);
 		epoch = epoch + usec/1000000.0;
-		if (num_pkts == 0)
+		if (firsttime == 0)
 		  firsttime = epoch;
 		num_pkts++;
 		if (firsttimeinfile == 0)
@@ -1631,8 +1655,71 @@ int main (int argc, char *argv[])
 		  }
 		amonProcessingNfdump(line, epoch); 
 	      }
+	    pclose(nf);
 	  }
-	else
+	else if (is_flowride)
+	  {
+	    char line[MAXLINE];
+	    FILE* pFile = fopen (file, "r");
+	    if (pFile)
+	      {
+		while (true)
+		  {
+		    char* rc = fgets(line, MAXLINE-1, pFile);
+		    if (rc == 0)
+		      break;
+		    
+		    char* sline = line;
+		    
+		    // Sanity check for Flowride to get rid of stray chars
+		    int i = strlen(line)-1;
+		    int found = 0;
+		    for(; i>0; i--)
+		      {
+			if (line[i] == '\t')
+			  found++;
+			if (found == 19)
+			  {
+			    i-=19;
+			    break;
+			  }
+		      }
+		    if (i > 0 && found == 19)
+		      {
+			cout<<"Corrected "<<line<<endl;
+			sline = line+i;
+		      }
+		    // Save evidence of attack
+		     memcpy(evidence[curline], line, strlen(line));
+		     curline = (curline + 1) % MAXDEPTH;
+		     if (curline <= startline)
+		       startline = (startline + 1) % MAXDEPTH;
+		     
+		     strcpy(saveline, sline);
+		     int dl = parse(sline,'\t', &delimiters);
+		     if (dl != 19)
+		      {
+			continue;
+		      }
+		    char sstart[MAXLINE], rstart[MAXLINE];
+		    strncpy(sstart, sline+delimiters[18],10);
+		    sstart[10] = 0;
+		    strncpy(rstart, sline+delimiters[18]+10,9);
+		    rstart[9] = 0;
+		    double epoch = (double)atoi(sstart)+(double)atoi(rstart)/1000000000;
+		    strncpy(sstart, sline,10);
+		    sstart[10] = 0;
+		    strncpy(rstart, sline+10,9);
+		    rstart[9] = 0;
+		    if (firsttime == 0)
+		      firsttime = epoch;
+		    double start = (double)atoi(sstart)+(double)atoi(rstart)/1000000000;
+		    processLine(amonProcessingFlowride, num_pkts, sline, epoch, start);
+		  }
+	      }
+	    fclose(pFile);
+	  }
+	else if (is_pcap)
 	  {
 	    char ebuf[MAXLINE];
 	    pcap_t *pt;
@@ -1656,7 +1743,7 @@ int main (int argc, char *argv[])
 		      continue;
 		    double epoch = h->ts.tv_sec + h->ts.tv_usec/1000000.0;
 
-		    if (num_pkts == 0)
+		    if (firsttime == 0)
 		      firsttime = epoch;
 		    num_pkts++;
 		    if (firsttimeinfile == 0)
@@ -1700,10 +1787,10 @@ int main (int argc, char *argv[])
 		      }
 		    amonProcessingPcap(h, p, epoch); 
 		  }
+		pcap_close(pt);
 	      }
 	  }
 	cout<<"Done with the file "<<file<<" time "<<time(0)<<" flows "<<allflows<<endl;
-	pclose(nf);
 	if (endfile && strstr(file,endfile) != 0)
 	  break;
       }
@@ -1719,6 +1806,11 @@ int main (int argc, char *argv[])
 	  char* sline = line;
 	  if (rc == 0)
 	    break;
+
+	  memcpy(evidence[curline], line, strlen(line));
+	  curline = (curline + 1) % MAXDEPTH;
+	  if (curline <= startline)
+	    startline = (startline + 1) % MAXDEPTH;
 
 	  // Sanity check for Flowride to get rid of stray chars
 	  int i = strlen(line)-1;
@@ -1749,6 +1841,8 @@ int main (int argc, char *argv[])
 	  strncpy(rstart, sline+10,9);
 	  rstart[9] = 0;
 	  double epoch = (double)atoi(sstart)+(double)atoi(rstart)/1000000000;
+	  if (firsttime == 0)
+	    firsttime = epoch;
 	  processLine(amonProcessingFlowride, num_pkts, sline, epoch, start);
 	}
     }

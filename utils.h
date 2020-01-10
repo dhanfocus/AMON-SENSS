@@ -45,7 +45,7 @@ enum ways{FOR, LOC, LOCPREF, FPORT, LPORT};
 #define QSIZE 100                 // How many timestamps can I accumulate before processing
 
 #define SIG_FLOWS 100             // This many flows must be collected, at least, to evaluate a signature
-#define MIN_SAMPLES 0.5           // We must have samples for at least this fraction of training period to
+#define MIN_SAMPLES 0.01          // We must have samples for at least this fraction of training period to
                                   // roll over current stats into historical stats
 
 #define ALPHA 0.5                 // Constant for weighted average of filtering effectiveness
