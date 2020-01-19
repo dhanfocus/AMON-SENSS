@@ -339,6 +339,7 @@ void clearSamples(int index)
       samples.bins[index].flows[s].oci = 0;
     }
 }
+
 // Add a flow to the samples bin
 void addSample(int index, flow_p* f, int way)
 {
@@ -455,6 +456,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
       cout<<"Malformed "<<start<<" end "<<end<<endl;
       return;
     }
+  //cout<<"Flow from "<<flow.src<<":"<<flow.sport<<"->"<<flow.dst<<":"<<flow.dport<<endl;
   // Standardize time
   if (curtime == 0)
     curtime = end;
@@ -582,7 +584,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	      c->databrick_p[d_bucket] += len;
 	      c->databrick_s[d_bucket] += oci;
 	      addSample(d_bucket, &fp, way);
-	      cout<<"Way "<<way<<" bucket "<<d_bucket<<" len "<<c->databrick_p[d_bucket]<<" oci "<<c->databrick_s[d_bucket]<<endl;
+	      //cout<<"Way "<<way<<" bucket "<<d_bucket<<" len "<<c->databrick_p[d_bucket]<<" oci "<<c->databrick_s[d_bucket]<<endl;
 	    }
 	  if (flow.slocal)
 	    {
@@ -616,6 +618,8 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic to LPORT
 	      d_bucket = myhash(0, flow.dport, way);
+	      //if (d_bucket == 2927)
+	      //cout<<" adding oci "<<oci<<" to databrick value "<<c->databrick_s[d_bucket]<<" c is "<<c<<" d port "<<flow.dport<<" dst "<<flow.dst<<endl;
 	      c->databrick_p[d_bucket] += len;
 	      c->databrick_s[d_bucket] += oci;
 	      addSample(d_bucket, &fp, way);
@@ -624,6 +628,8 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic from LPORT
 	      s_bucket = myhash(0, flow.sport, way);
+	      //if (s_bucket == 2927)
+	      //cout<<" subtracting oci "<<oci<<" to databrick value "<<c->databrick_s[s_bucket]<<" c is "<<c<<" sport "<<flow.sport<<" src " <<flow.src<<endl;
 	      c->databrick_p[s_bucket] -= len;
 	      c->databrick_s[s_bucket] -= oci;
 	    }
@@ -680,7 +686,7 @@ void update_stats(cell* c)
 	      if (stats[cur][n][j][i] == 1)
 		{
 		  stats[cur][avg][j][i] =  data;
-		  stats[cur][ss][j][i] =  0;
+		  stats[cur][ss][j][i] = 0;
 		}
 	      else
 		{
@@ -691,8 +697,8 @@ void update_stats(cell* c)
 		    (data-ao)*(data - stats[cur][avg][j][i]);
 		}
 	    }
-	  if (i == 1893)
-	    cout<<" i "<<i<<" j "<<j<<" cur avg "<<stats[cur][avg][j][i]<<" ss "<<stats[cur][ss][j][i]<<" n "<<stats[cur][n][j][i]<<endl;
+	  //if (i == 2927)
+	  // cout<<" i "<<i<<" j "<<j<<" cur avg "<<stats[cur][avg][j][i]<<" ss "<<stats[cur][ss][j][i]<<" n "<<stats[cur][n][j][i]<<" data "<<data<<" cell "<<c<<endl;
 	}      
     }
   trained = (lasttime - firsttime);
@@ -704,7 +710,7 @@ void update_stats(cell* c)
 	  cout<<"Training has completed\n";
 	  training_done = true;
 	}
-      trained = 0;
+      trained = curtime;
      
       for (int x = ss; x >= n; x--)
 	for (int j = vol; j <= sym; j++)
@@ -719,6 +725,8 @@ void update_stats(cell* c)
 	      }
 	    stats[hist][x][j][i] = stats[cur][x][j][i];
 	    stats[cur][x][j][i] = 0;
+	    //if (i == 2927)
+	    //cout<<" i "<<i<<" j "<<j<<" hist avg "<<stats[hist][avg][j][i]<<" ss "<<stats[hist][ss][j][i]<<" n "<<stats[hist][n][j][i]<<endl;
 	  }
     }
 }
@@ -800,9 +808,8 @@ void findBestSignature(int i, cell* c)
       out<<" "<<roci<<" ";
       out<<printsignature(bestsig)<<endl;
       out.close();
-      pthread_mutex_unlock(&cnt_lock);
 
-      cout<<"EVI: "<<i<<" saved in "<<na<<endl;
+      cout<<"EVI: "<<i<<" saved in "<<na<<" startline "<<startline<<" curline "<<curline<<endl;
       // Save evidence of attack
       char filename[MAXLINE];
       sprintf(filename, "/mnt/senss/evidence/attack%d", na);
@@ -810,9 +817,7 @@ void findBestSignature(int i, cell* c)
       for (int i=startline; i != curline; i = (i+1)%MAXDEPTH)
 	  out<<evidence[i];
       out.close();
-      
-      // Get ready for new evidence
-      startline = curline = 0;
+      pthread_mutex_unlock(&cnt_lock);
       
       // Check if we should rotate file
       ifstream in("alerts.txt", std::ifstream::ate | std::ifstream::binary);
@@ -846,7 +851,7 @@ void findBestSignature(int i, cell* c)
 void detect_attack(cell* c)
 {
   // If verbose, output debugging statistics into DB
-  if (verbose)
+  if (false) // (verbose)
     {
       sql::PreparedStatement *stmt;
       DataBuf buffer((char*)c, sizeof(cell));
@@ -1015,8 +1020,8 @@ amonProcessingFlowride(char* line, double start)
   double end = (double)atoi(send) + (double)atoi(rend)/1000000000;
   double dur = end - start;
   // Normalize duration
-  if (dur < 0)
-    dur = 0;
+  if (dur < 1)
+    dur = 1;
   if (dur > 3600)
     dur = 3600;
   int pkts, bytes, rpkts, rbytes, pktsdir, pktsrev;
@@ -1038,14 +1043,14 @@ amonProcessingFlowride(char* line, double start)
   flow.proto = proto;
   flow.slocal = islocal(flow.src);
   flow.dlocal = islocal(flow.dst);
-  bytes = atoi(line+delimiters[9]);
+  int pbytes = atoi(line+delimiters[9]);
   rbytes = atoi(line+delimiters[10]);
   pktsdir = atoi(line+delimiters[14]);
   pktsrev = atoi(line+delimiters[15]);
   // Closed flow, no need to do anything
   if (pktsdir == 0 && pktsrev == 0)
     return;
-  processedbytes+=bytes;
+  processedbytes+=pbytes;
 
   // Cross-traffic, do nothing
   if (!flow.slocal && !flow.dlocal)
@@ -1055,13 +1060,13 @@ amonProcessingFlowride(char* line, double start)
     }
   l++;
   int flags = atoi(line+delimiters[11]);
-  pkts = atoi(line+delimiters[7]);
+  int ppkts = atoi(line+delimiters[7]);
   rpkts = atoi(line+delimiters[8]);
-  pkts = (int)(pkts/(dur+1))+1;
-  bytes = (int)(bytes/(dur+1))+1;
-  rpkts = (int)(rpkts/(dur+1))+1;
-  rbytes = (int)(rbytes/(dur+1))+1;
-
+  pkts = (int)(ppkts/dur);
+  bytes = (int)(pbytes/dur);
+  rpkts = (int)(rpkts/dur);
+  rbytes = (int)(rbytes/dur);
+  //cout<<" pkts "<<pkts<<" rpkts "<<rpkts<<" delimiters "<<delimiters[7]<<" and "<<delimiters[8]<<" vals "<<(char*)(line+delimiters[7])<<" and "<<(char*)(line+delimiters[8])<<endl;
   /* Is this outstanding connection? For TCP, connections without 
      PUSH are outstanding. For UDP, connections that have a request
      but not a reply are outstanding. Because bidirectional flows
@@ -1072,6 +1077,17 @@ amonProcessingFlowride(char* line, double start)
   int oci, roci = 0;
   if (proto == TCP)
     {
+      // Jelena: Temp ad-hoc fix for Flowride
+      // fake a PSH flag
+      if (pkts > 0 && bytes/pkts > 100)
+	{
+	  flags = flags | 8;
+	}
+      if (rpkts > 0 && rbytes/rpkts > 100)
+	{
+	  flags = flags | 8;
+	}
+
       // There is a PUSH flag
       if ((flags & 8) > 0)
 	{
@@ -1082,6 +1098,7 @@ amonProcessingFlowride(char* line, double start)
 	{
 	  oci = pkts;
 	  roci = rpkts;
+	  //cout<<"TCP flow from "<<flow.src<<":"<<flow.sport<<"->"<<flow.dst<<":"<<flow.dport<<" bytes "<<bytes<<" pkts "<<pkts<<" dur "<<dur<<" oci "<<oci<<" roci "<<roci<<" ppkts "<<ppkts<<" pbytes "<<pbytes<<endl;
 	}
     }
   else if (proto == UDP)
@@ -1095,6 +1112,9 @@ amonProcessingFlowride(char* line, double start)
       oci = pkts;
       roci = rpkts;
     }
+  // Don't deal with TCP flows w PUSH flags // Jelena should say "unless they have RST flags"
+  if (oci == 0)
+    return;
   //cout<<"Start "<<start<<" end "<<end<<" dur "<<dur<<" bytes "<<bytes<<" oci "<<oci<<" line "<<saveline<<" flags "<<flags<<endl; // Jelena
   amonProcessing(flow, bytes, start, end, oci);
   // Now account for reverse flow too, if needed
@@ -1207,9 +1227,10 @@ void *reset_transmit (void* passed_parms)
   
   // Serialize access to cells
   pthread_mutex_unlock (&cells_lock);
-  cout<<"RS unlocked\n";
+
   
   cell* c = &cells[current];
+  //cout<<"RS unlocked front "<<cfront<<" rear "<<crear<<" current "<<current<<" address "<<c<<"\n";
   
   // Check if there is an attack that was waiting
   // a long time to be reported. Perhaps we had too specific
@@ -1333,8 +1354,9 @@ void processLine(std::function<void(char*, double)> func, int num_pkts, char* li
 	}
       // zero out stats
       cell* c = &cells[crear];
-      memset(c->databrick_p, 0, BRICK_DIMENSION*sizeof(int));
-      memset(c->databrick_s, 0, BRICK_DIMENSION*sizeof(int));
+      //cout<<"Zeroing cell "<<crear<<" address "<<c<<endl;
+      memset(c->databrick_p, 0, BRICK_DIMENSION*sizeof(long int));
+      memset(c->databrick_s, 0, BRICK_DIMENSION*sizeof(long int));
       memset(c->wfilter_p, 0, BRICK_DIMENSION*sizeof(unsigned int));
       memset(c->wfilter_s, 0, BRICK_DIMENSION*sizeof(int));	  
       // and it will soon be full
@@ -1547,9 +1569,8 @@ int main (int argc, char *argv[])
 		    if (pFile)
 		      {
 			char* rc = fgets(line, MAXLINE-1, pFile);
-			if (rc == 0)
-			  break;
-			
+
+
 			// Check for Flowride format, first line only
 			int i = strlen(line)-1;
 			int found = 0;
@@ -1690,14 +1711,16 @@ int main (int argc, char *argv[])
 			sline = line+i;
 		      }
 		    // Save evidence of attack
-		     memcpy(evidence[curline], line, strlen(line));
-		     curline = (curline + 1) % MAXDEPTH;
-		     if (curline <= startline)
-		       startline = (startline + 1) % MAXDEPTH;
-		     
-		     strcpy(saveline, sline);
-		     int dl = parse(sline,'\t', &delimiters);
-		     if (dl != 19)
+		    pthread_mutex_lock(&cnt_lock);
+		    memcpy(evidence[curline], sline, strlen(sline));
+		    curline = (curline + 1) % MAXDEPTH;
+		    if (curline <= startline)
+		      startline = (startline + 1) % MAXDEPTH;
+		    pthread_mutex_unlock(&cnt_lock);
+		    
+		    //strcpy(saveline, sline);
+		    int dl = parse(sline,'\t', &delimiters);
+		    if (dl != 19)
 		      {
 			continue;
 		      }
@@ -1806,12 +1829,14 @@ int main (int argc, char *argv[])
 	  char* sline = line;
 	  if (rc == 0)
 	    break;
-
+	  
+	  pthread_mutex_lock(&cnt_lock);
 	  memcpy(evidence[curline], line, strlen(line));
 	  curline = (curline + 1) % MAXDEPTH;
 	  if (curline <= startline)
 	    startline = (startline + 1) % MAXDEPTH;
-
+	  pthread_mutex_unlock(&cnt_lock);
+	  
 	  // Sanity check for Flowride to get rid of stray chars
 	  int i = strlen(line)-1;
 	  int found = 0;
