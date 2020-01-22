@@ -115,8 +115,9 @@ struct cell
   long int databrick_s[BRICK_DIMENSION];         // databrick symmetry 
   unsigned int wfilter_p[BRICK_DIMENSION];	 // volume w filter 
   int wfilter_s[BRICK_DIMENSION];	         // symmetry w filter 
-  int fresh;
+  long int astart;
 };
+
 // Should we require destination prefix
 bool noorphan = false;
 // How many service ports are there
@@ -149,7 +150,7 @@ int is_abnormal[BRICK_DIMENSION];
 int is_attack[BRICK_DIMENSION];
 // Should we allow broad signatures
 int broad_allowed[BRICK_DIMENSION];
-// Are we simulating filtering. This is not for live experiments.
+// Are we simulating filtering. 
 bool sim_filter = false;
 
 // Did we complete training
@@ -406,16 +407,24 @@ void addSample(int index, flow_p* f, int way)
 int match(flow_t flow, flow_t sig)
 {
   if (flow.proto != sig.proto && sig.proto != 0)
-    return 0;
+    {
+      return 0;
+    }
   if (empty(sig))
-    return 0;
+    {
+      return 0;
+    }
   if ((flow.src == sig.src || sig.src == 0) &&
       (flow.sport == sig.sport || sig.sport == 0) &&
       (flow.dst == sig.dst || sig.dst == 0) &&
       (flow.dport == sig.dport || sig.dport == 0))
-    return 1;
+    {
+      return 1;
+    }
   else
-    return 0;
+    {
+      return 0;
+    }
 }
 
 // Is this timestamp within the range, which we expect in a given input file
@@ -436,7 +445,11 @@ int malformed(double timestamp)
 bool shouldFilter(int bucket, flow_t flow)
 {
   if (!empty(signatures[bucket].sig) && match(flow,signatures[bucket].sig))
-    return true;
+    {
+      if (signatures[bucket].nm < MM)
+	  strcpy(signatures[bucket].matches[signatures[bucket].nm++], saveline);
+      return true;
+    }
   else
     return false;
 }
@@ -549,10 +562,10 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	}
     }
 
-  if (is_filtered)
-    {
-      return;
-    }
+  //  if (is_filtered)
+  //{
+  //  return;
+  //}
 
   for (int way = FOR; way <= LPORT; way++) 
     {
@@ -731,6 +744,48 @@ void update_stats(cell* c)
     }
 }
 
+void print_alert(int i, cell* c, int na)
+{
+  double diff = curtime - lasttime;
+  if (diff < 1)
+    diff = 1;
+  double avgv = stats[hist][avg][vol][i];
+  double stdv = sqrt(stats[hist][ss][vol][i]/(stats[hist][n][vol][i]-1));
+  double avgs = stats[hist][avg][sym][i];
+  double stds = sqrt(stats[hist][ss][sym][i]/(stats[hist][n][sym][i]-1));
+  long int rate = c->databrick_p[i]/diff - avgv - parms["num_std"]*stdv;
+  long int roci = c->databrick_s[i]/diff - avgs - parms["num_std"]*stds;
+  
+  // Write the start of the attack into alerts
+  ofstream out;
+  
+  pthread_mutex_lock(&cnt_lock);
+  
+  out.open("alerts.txt", std::ios_base::app);
+  out<<na<<" "<<i/BRICK_UNIT<<" "<<(long)curtime<<" ";
+  out<<"START "<<i<<" "<<rate;
+  out<<" "<<roci<<" ";
+  out<<printsignature(signatures[i].sig)<<endl;
+  out.close();
+  
+  cout<<"EVI: "<<i<<" saved in "<<na<<" startline "<<startline<<" curline "<<curline<<endl;
+  // Save evidence of attack
+  char filename[MAXLINE];
+  sprintf(filename, "/mnt/senss/evidence/attack%d", na);
+  out.open(filename, std::ios_base::app);
+  for (int j=0; j < signatures[i].nm; j++)
+    out<<signatures[i].matches[j];
+  out.close();
+  pthread_mutex_unlock(&cnt_lock);
+  
+  // Check if we should rotate file
+  ifstream in("alerts.txt", std::ifstream::ate | std::ifstream::binary);
+  if (in.tellg() > 10000000)
+    {
+      system("./rotate");
+    }
+}
+
 void findBestSignature(int i, cell* c)
 {
   flow_t bestsig;
@@ -786,45 +841,9 @@ void findBestSignature(int i, cell* c)
 	  signatures[i].sig = bestsig;
 	  signatures[i].vol = 0;
 	  signatures[i].oci = 0;
+	  signatures[i].nm = 0;	  
 	}
-      double diff = curtime - lasttime;
-      if (diff < 1)
-	diff = 1;
-      double avgv = stats[hist][avg][vol][i];
-      double stdv = sqrt(stats[hist][ss][vol][i]/(stats[hist][n][vol][i]-1));
-      double avgs = stats[hist][avg][sym][i];
-      double stds = sqrt(stats[hist][ss][sym][i]/(stats[hist][n][sym][i]-1));
-      long int rate = c->databrick_p[i]/diff - avgv - parms["num_std"]*stdv;
-      long int roci = c->databrick_s[i]/diff - avgs - parms["num_std"]*stds;
-      // Write the start of the attack into alerts
-      ofstream out;
-      
-      pthread_mutex_lock(&cnt_lock);
-      int na = numattack++;
-      
-      out.open("alerts.txt", std::ios_base::app);
-      out<<na<<" "<<i/BRICK_UNIT<<" "<<(long)curtime<<" ";
-      out<<"START "<<i<<" "<<rate;
-      out<<" "<<roci<<" ";
-      out<<printsignature(bestsig)<<endl;
-      out.close();
-
-      cout<<"EVI: "<<i<<" saved in "<<na<<" startline "<<startline<<" curline "<<curline<<endl;
-      // Save evidence of attack
-      char filename[MAXLINE];
-      sprintf(filename, "/mnt/senss/evidence/attack%d", na);
-      out.open(filename, std::ios_base::app);
-      for (int i=startline; i != curline; i = (i+1)%MAXDEPTH)
-	  out<<evidence[i];
-      out.close();
-      pthread_mutex_unlock(&cnt_lock);
-      
-      // Check if we should rotate file
-      ifstream in("alerts.txt", std::ifstream::ate | std::ifstream::binary);
-      if (in.tellg() > 10000000)
-	{
-	  system("./rotate");
-	}
+      c->astart = curtime;
       
       // Now remove abnormal measure and samples, we're done
       is_abnormal[i] = 0;
@@ -903,52 +922,78 @@ void detect_attack(cell* c)
       double stds = sqrt(stats[hist][ss][sym][i]/(stats[hist][n][sym][i]-1));
 
       if (is_attack[i] == true)
-	is_attack[i] = false;
-      // If both volume and asymmetry are abnormal and training has completed
-      int a = abnormal(vol, i, c);
-      int b = abnormal(sym, i, c);
-      int volume = c->databrick_p[i];
-      int asym = c->databrick_s[i];
-      if (training_done && abnormal(vol, i, c) && abnormal(sym, i, c))
 	{
-	  double aavgs = abs(avgs);
-	  if (aavgs == 0)
-	    aavgs = 1;
-	  double d = abs(abs(asym) - abs(avgs) - parms["numstd"]*abs(stds))/aavgs;
-	  if (d > parms["max_oci"])
-	    d = parms["max_oci"];
-	  if (verbose)
-	    cout<<curtime<<" abnormal for "<<i<<" points "<<is_abnormal[i]<<" oci "<<c->databrick_s[i]<<" ranges " <<avgs<<"+-"<<stds<<", vol "<<c->databrick_p[i]<<" ranges " <<avgv<<"+-"<<stdv<<" over mean "<<d<<endl;
-	  
-	  // Increase abnormal score, but cap at attack_high
-	  if (is_abnormal[i] < int(parms["attack_high"]))
-	    is_abnormal[i] += int(d+1);
-	  if (is_abnormal[i] > int(parms["attack_high"]))
-	    is_abnormal[i] = int(parms["attack_high"]);
-	  
-	  // If abnormal score is above attack_low
-	  // and oci is above MAX_OCI
-	  if (is_abnormal[i] >= int(parms["attack_low"])
-	      && !is_attack[i] && abs(c->databrick_s[i]) >= int(parms["max_oci"]))
+	  // Check if enough time has elapsed so we can evaluate
+	  // the quality of the signature
+	  if (curtime - c->astart > SIGTIME)
 	    {
-	      // Signal attack detection 
-	      is_attack[i] = true;
-	      if (verbose)
-		cout<<"AT: Attack detected on "<<i<<" but not reported yet vol "<<c->databrick_p[i]<<" oci "<<c->databrick_s[i]<<" max oci "<<int(parms["max_oci"])<<endl;
-	     
-	      // Find the best signature
-	      findBestSignature(i, c);
+	      double volf = c->wfilter_p[i];
+	      double volb = c->databrick_p[i];
+	      if (volb == 0)
+		volb = 1;
+	      double symf = c->wfilter_s[i];
+	      double symb = c->databrick_s[i];
+	      if (symb == 0)
+		symb = 1;
+	      if (symf/symb >= parms["filter_thresh"] && abnormal(vol,i,c) && abnormal(sym,i,c))
+		{
+		  pthread_mutex_lock(&cnt_lock);
+		  int na = numattack++;
+		  pthread_mutex_unlock(&cnt_lock);
+		  cout<<curtime<<" event "<<na<<" Signature works for "<<i<<" wfilter "<<symf<<","<<volf<<" without "<<symb<<","<<volb<<" stored matches "<<signatures[i].nm<<endl;
+		  print_alert(i, c, na);
+		}
+	      is_attack[i] = false;
 	    }
 	}
-      // Training is completed and both volume and symmetry are normal
-      else if (training_done && !abnormal(vol, i, c) && !abnormal(sym, i, c))
+      else if (!is_attack[i])
 	{
-	  // if (verbose)
-	  //cout<<curtime<<" is normal for "<<i<<" points "<<is_abnormal[i]<<" oci "<<c->databrick_s[i]<<" ranges " <<avgs<<"+-"<<stds<<", vol "<<c->databrick_p[i]<<" ranges " <<avgv<<"+-"<<stdv<<endl;
-	  // Reduce abnormal score
-	  if (is_abnormal[i] > 0)
+	  // If both volume and asymmetry are abnormal and training has completed
+	  int a = abnormal(vol, i, c);
+	  int b = abnormal(sym, i, c);
+	  int volume = c->databrick_p[i];
+	  int asym = c->databrick_s[i];
+	  if (training_done && abnormal(vol, i, c) && abnormal(sym, i, c))
 	    {
-	      is_abnormal[i] --;
+	      double aavgs = abs(avgs);
+	      if (aavgs == 0)
+		aavgs = 1;
+	      double d = abs(abs(asym) - abs(avgs) - parms["numstd"]*abs(stds))/aavgs;
+	      if (d > parms["max_oci"])
+		d = parms["max_oci"];
+	      if (verbose)
+		cout<<curtime<<" abnormal for "<<i<<" points "<<is_abnormal[i]<<" oci "<<c->databrick_s[i]<<" ranges " <<avgs<<"+-"<<stds<<", vol "<<c->databrick_p[i]<<" ranges " <<avgv<<"+-"<<stdv<<" over mean "<<d<<endl;
+	      
+	      // Increase abnormal score, but cap at attack_high
+	      if (is_abnormal[i] < int(parms["attack_high"]))
+		is_abnormal[i] += int(d+1);
+	      if (is_abnormal[i] > int(parms["attack_high"]))
+		is_abnormal[i] = int(parms["attack_high"]);
+	      
+	      // If abnormal score is above attack_low
+	      // and oci is above MAX_OCI
+	      if (is_abnormal[i] >= int(parms["attack_low"])
+		  && !is_attack[i] && abs(c->databrick_s[i]) >= int(parms["max_oci"]))
+		{
+		  // Signal attack detection 
+		  is_attack[i] = true;
+		  if (verbose)
+		    cout<<"AT: Attack detected on "<<i<<" but not reported yet vol "<<c->databrick_p[i]<<" oci "<<c->databrick_s[i]<<" max oci "<<int(parms["max_oci"])<<endl;
+		  
+		  // Find the best signature
+		  findBestSignature(i, c);
+		}
+	    }
+	  // Training is completed and both volume and symmetry are normal
+	  else if (training_done && !abnormal(vol, i, c) && !abnormal(sym, i, c))
+	    {
+	      // if (verbose)
+	      //cout<<curtime<<" is normal for "<<i<<" points "<<is_abnormal[i]<<" oci "<<c->databrick_s[i]<<" ranges " <<avgs<<"+-"<<stds<<", vol "<<c->databrick_p[i]<<" ranges " <<avgv<<"+-"<<stdv<<endl;
+	      // Reduce abnormal score
+	      if (is_abnormal[i] > 0)
+		{
+		  is_abnormal[i] --;
+		}
 	    }
 	}
     }
@@ -1009,7 +1054,6 @@ amonProcessingPcap (pcap_pkthdr* hdr, u_char* p, double time)
 void
 amonProcessingFlowride(char* line, double start)
 {
-
   /* 1576613068700777885	ICMP	ACTIVE	x	129.82.138.44	46.167.131.0	0	0	1	0	60	0	0	8	0	1	0	60	0	1576613073700960814 */
   // Line is already parsed
   char send[MAXLINE], rend[MAXLINE];
@@ -1073,7 +1117,7 @@ amonProcessingFlowride(char* line, double start)
      may be broken into two unidirectional flows we have values of
      0, -1 and +1 for outstanding connection indicator or oci. For 
      TCP we use 0 (there is a PUSH) or 1 (no PUSH) and for UDP/ICMP we 
-     use +1 for requests and -1 for replies. */
+     use +1. */
   int oci, roci = 0;
   if (proto == TCP)
     {
@@ -1087,7 +1131,10 @@ amonProcessingFlowride(char* line, double start)
 	{
 	  flags = flags | 8;
 	}
-
+      if (flags == 16)
+	{
+	  flags = flags | 8;
+	}
       // There is a PUSH flag
       if ((flags & 8) > 0)
 	{
@@ -1142,6 +1189,7 @@ amonProcessingNfdump (char* line, double time)
   /* 2|1453485557|768|1453485557|768|6|0|0|0|2379511808|44694|0|0|0|2792759296|995|0|0|0|0|2|0|1|40 */
   // Get start and end time of a flow
   char* tokene;
+  strcpy(saveline, line);
   parse(line,'|', &delimiters);
   double start = (double)strtol(line+delimiters[0], &tokene, 10);
   start = start + strtol(line+delimiters[1], &tokene, 10)/1000.0;
@@ -1718,7 +1766,7 @@ int main (int argc, char *argv[])
 		      startline = (startline + 1) % MAXDEPTH;
 		    pthread_mutex_unlock(&cnt_lock);
 		    
-		    //strcpy(saveline, sline);
+		    strcpy(saveline, sline);
 		    int dl = parse(sline,'\t', &delimiters);
 		    if (dl != 19)
 		      {
@@ -1854,7 +1902,7 @@ int main (int argc, char *argv[])
 	    {
 	      sline = line+i;
 	    }
-	  //strcpy(saveline, line);
+	  strcpy(saveline, line);
 	  int dl = parse(sline,'\t', &delimiters);
 	  if (dl != 19)
 	    {

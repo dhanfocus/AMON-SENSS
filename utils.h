@@ -35,10 +35,12 @@ enum ways{FOR, LOC, LOCPREF, FPORT, LPORT};
 
 #define BRICK_UNIT 701           // How many bins we have. This should NOT be a power of 2
 #define BRICK_DIMENSION NUMF*BRICK_UNIT // There are NUMF variants of how we can bin the traffic (e.g., by port, by dst IP, etc.)
+#define SIGTIME 1
 #define REPORT_THRESH 30
 #define MIN_FRESH 10              // have seen most of their records
 #define HMB 1.1                   // This is how much more a less specific signature should catch to be accepted
 #define MAXLINE 1024              // Maximum length for reading strings
+#define MM 5                      // Samples of flows that match a signature
 #define AR_LEN 30                 // How many delimiters may be in an array
 #define MAX_DIFF 10               // How close should a timestamp be to the one where attack is detected
 #define NF 16                     // Number of different signatures for a flow
@@ -159,6 +161,8 @@ struct stat_r
   flow_t sig;
   int vol;
   int oci;
+  int nm;
+  char matches[MM][MAXLINE];
 };
 
 // A sample of flows that are used to derive a signature for the attack
