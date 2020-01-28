@@ -68,19 +68,15 @@
 
 #include "utils.h"
 
-char saveline[MAXLINE];
+
 #define BILLION 1000000000L
 
 using namespace std;
 
 
-// Buffer data being read so that we can
-// save evidence of attacks if needed
-// and process the rest in a streaming fashion
-const int MAXDEPTH=100000;
-char evidence[MAXDEPTH][MAXLINE];
-int curline = 0;
-int startline = 0;
+// Global variables
+bool resetrunning = false;
+char saveline[MAXLINE];
 int numattack = 0;
 
 // We store delimiters in this array
@@ -115,7 +111,6 @@ struct cell
   long int databrick_s[BRICK_DIMENSION];         // databrick symmetry 
   unsigned int wfilter_p[BRICK_DIMENSION];	 // volume w filter 
   int wfilter_s[BRICK_DIMENSION];	         // symmetry w filter 
-  long int astart;
 };
 
 // Should we require destination prefix
@@ -136,14 +131,6 @@ sample samples;
 
 // Signatures per bin
 stat_r signatures[BRICK_DIMENSION];
-// We remember all time slots here and
-// do statistics update when we are sure
-// that the time slot did not have an attack
-vector<long> times;
-
-// Save some stats about each bin if verbose bit is set
-// This helps later with debugging
-ofstream debug[BRICK_DIMENSION];
 // Is the bin abnormal or not
 int is_abnormal[BRICK_DIMENSION];
 // Did we detect an attack in this bin
@@ -184,6 +171,7 @@ bool is_flowride = false;
 pthread_mutex_t cells_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t sql_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t cnt_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t rst_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // Types of statistics. If this changes, update the entire section 
 enum period{cur, hist};
@@ -447,7 +435,7 @@ bool shouldFilter(int bucket, flow_t flow)
   if (!empty(signatures[bucket].sig) && match(flow,signatures[bucket].sig))
     {
       if (signatures[bucket].nm < MM)
-	  strcpy(signatures[bucket].matches[signatures[bucket].nm++], saveline);
+	strcpy(signatures[bucket].matches[signatures[bucket].nm++], saveline);
       return true;
     }
   else
@@ -758,6 +746,8 @@ void print_alert(int i, cell* c, int na)
   
   // Write the start of the attack into alerts
   ofstream out;
+  if (roci < parms["min_oci"])
+    return;
   
   pthread_mutex_lock(&cnt_lock);
   
@@ -768,7 +758,6 @@ void print_alert(int i, cell* c, int na)
   out<<printsignature(signatures[i].sig)<<endl;
   out.close();
   
-  cout<<"EVI: "<<i<<" saved in "<<na<<" startline "<<startline<<" curline "<<curline<<endl;
   // Save evidence of attack
   char filename[MAXLINE];
   sprintf(filename, "/mnt/senss/evidence/attack%d", na);
@@ -835,7 +824,6 @@ void findBestSignature(int i, cell* c)
 	cout<<"ISIG: "<<i<<" installed sig "<<printsignature(bestsig)<<endl;
 
       // insert signature and reset all the stats
-      // this is needed only for simulation of filtering
       if (sim_filter)
 	{
 	  signatures[i].sig = bestsig;
@@ -843,7 +831,6 @@ void findBestSignature(int i, cell* c)
 	  signatures[i].oci = 0;
 	  signatures[i].nm = 0;	  
 	}
-      c->astart = curtime;
       
       // Now remove abnormal measure and samples, we're done
       is_abnormal[i] = 0;
@@ -923,9 +910,8 @@ void detect_attack(cell* c)
 
       if (is_attack[i] == true)
 	{
-	  // Check if enough time has elapsed so we can evaluate
-	  // the quality of the signature
-	  if (curtime - c->astart > SIGTIME)
+	  // Check if we have collected enough matches
+	  if (signatures[i].nm == MM)
 	    {
 	      double volf = c->wfilter_p[i];
 	      double volb = c->databrick_p[i];
@@ -1068,6 +1054,11 @@ amonProcessingFlowride(char* line, double start)
     dur = 1;
   if (dur > 3600)
     dur = 3600;
+
+  // Hack for Flowride
+  // assume 5 second interval for reports
+  dur = 5;
+  
   int pkts, bytes, rpkts, rbytes, pktsdir, pktsrev;
 
   // Get source and destination IP and port and protocol 
@@ -1087,8 +1078,8 @@ amonProcessingFlowride(char* line, double start)
   flow.proto = proto;
   flow.slocal = islocal(flow.src);
   flow.dlocal = islocal(flow.dst);
-  int pbytes = atoi(line+delimiters[9]);
-  rbytes = atoi(line+delimiters[10]);
+  int pbytes = atoi(line+delimiters[16]);
+  rbytes = atoi(line+delimiters[17]);
   pktsdir = atoi(line+delimiters[14]);
   pktsrev = atoi(line+delimiters[15]);
   // Closed flow, no need to do anything
@@ -1104,13 +1095,13 @@ amonProcessingFlowride(char* line, double start)
     }
   l++;
   int flags = atoi(line+delimiters[11]);
-  int ppkts = atoi(line+delimiters[7]);
-  rpkts = atoi(line+delimiters[8]);
+  int ppkts = atoi(line+delimiters[14]);
+  rpkts = atoi(line+delimiters[15]);
   pkts = (int)(ppkts/dur);
   bytes = (int)(pbytes/dur);
   rpkts = (int)(rpkts/dur);
   rbytes = (int)(rbytes/dur);
-  //cout<<" pkts "<<pkts<<" rpkts "<<rpkts<<" delimiters "<<delimiters[7]<<" and "<<delimiters[8]<<" vals "<<(char*)(line+delimiters[7])<<" and "<<(char*)(line+delimiters[8])<<endl;
+  //cout<<" pkts "<<pkts<<" rpkts "<<endl;
   /* Is this outstanding connection? For TCP, connections without 
      PUSH are outstanding. For UDP, connections that have a request
      but not a reply are outstanding. Because bidirectional flows
@@ -1122,7 +1113,7 @@ amonProcessingFlowride(char* line, double start)
   if (proto == TCP)
     {
       // Jelena: Temp ad-hoc fix for Flowride
-      // fake a PSH flag
+      // fake a PSH flag for bunch of inc. cases
       if (pkts > 0 && bytes/pkts > 100)
 	{
 	  flags = flags | 8;
@@ -1132,6 +1123,10 @@ amonProcessingFlowride(char* line, double start)
 	  flags = flags | 8;
 	}
       if (flags == 16)
+	{
+	  flags = flags | 8;
+	}
+      if ((flags & 1) > 0)
 	{
 	  flags = flags | 8;
 	}
@@ -1260,6 +1255,11 @@ amonProcessingNfdump (char* line, double time)
 // Ever so often go through flows and process what is ready
 void *reset_transmit (void* passed_parms)
 {
+  // Make sure to note that you're running
+  pthread_mutex_lock (&rst_lock);
+  resetrunning = true;
+  pthread_mutex_unlock (&rst_lock);
+  
   // Serialize access to cells
   pthread_mutex_lock (&cells_lock);
   cout<<"RS locked\n";
@@ -1290,6 +1290,11 @@ void *reset_transmit (void* passed_parms)
 
   std::cout.precision(5);
 
+  // Now note that you're done
+  pthread_mutex_lock (&rst_lock);
+  resetrunning = false;
+  pthread_mutex_unlock (&rst_lock);
+  
     // Detect attack here
   pthread_exit (NULL);
 }
@@ -1368,8 +1373,7 @@ printHelp (void)
 
 // File or stream processing function
 void processLine(std::function<void(char*, double)> func, int num_pkts, char* line, double epoch, double& start)
-{
-  
+{  
   //cout<<"Processing "<<line<<endl; // Jelena
   // For now, if this is IPv6 flow ignore it
   if (strstr(line, ":") != 0)
@@ -1410,6 +1414,17 @@ void processLine(std::function<void(char*, double)> func, int num_pkts, char* li
       // and it will soon be full
       cempty = false;
       pthread_mutex_unlock (&cells_lock);
+
+      // If the previous reset didn't finish, cannot create new one
+      while (true)
+	{
+	  pthread_mutex_lock (&rst_lock);
+	  int rst = resetrunning;
+	  pthread_mutex_unlock (&rst_lock);
+	  if (!rst)
+	    break;
+	  usleep(1);
+	}
       
       pthread_t thread_id;
       pthread_create (&thread_id, NULL, reset_transmit, NULL);
@@ -1424,7 +1439,6 @@ void processLine(std::function<void(char*, double)> func, int num_pkts, char* li
 int main (int argc, char *argv[])
 {  
   delimiters = (int*)malloc(AR_LEN*sizeof(int));
-  memset(evidence, 0, MAXDEPTH*MAXLINE);
   memset(is_attack, 0, BRICK_DIMENSION*sizeof(int));
   memset(is_abnormal, 0, BRICK_DIMENSION*sizeof(int));
   // Parse configuration
@@ -1758,13 +1772,6 @@ int main (int argc, char *argv[])
 			cout<<"Corrected "<<line<<endl;
 			sline = line+i;
 		      }
-		    // Save evidence of attack
-		    pthread_mutex_lock(&cnt_lock);
-		    memcpy(evidence[curline], sline, strlen(sline));
-		    curline = (curline + 1) % MAXDEPTH;
-		    if (curline <= startline)
-		      startline = (startline + 1) % MAXDEPTH;
-		    pthread_mutex_unlock(&cnt_lock);
 		    
 		    strcpy(saveline, sline);
 		    int dl = parse(sline,'\t', &delimiters);
@@ -1877,14 +1884,7 @@ int main (int argc, char *argv[])
 	  char* sline = line;
 	  if (rc == 0)
 	    break;
-	  
-	  pthread_mutex_lock(&cnt_lock);
-	  memcpy(evidence[curline], line, strlen(line));
-	  curline = (curline + 1) % MAXDEPTH;
-	  if (curline <= startline)
-	    startline = (startline + 1) % MAXDEPTH;
-	  pthread_mutex_unlock(&cnt_lock);
-	  
+	  	  
 	  // Sanity check for Flowride to get rid of stray chars
 	  int i = strlen(line)-1;
 	  int found = 0;
@@ -1908,15 +1908,20 @@ int main (int argc, char *argv[])
 	    {
 	      continue;
 	    }
-	  char sstart[MAXLINE], rstart[MAXLINE];
-	  strncpy(sstart, sline,10);
-	  sstart[10] = 0;
-	  strncpy(rstart, sline+10,9);
-	  rstart[9] = 0;
-	  double epoch = (double)atoi(sstart)+(double)atoi(rstart)/1000000000;
-	  if (firsttime == 0)
-	    firsttime = epoch;
-	  processLine(amonProcessingFlowride, num_pkts, sline, epoch, start);
+	   char sstart[MAXLINE], rstart[MAXLINE];
+	   strncpy(sstart, sline+delimiters[18],10);
+	   sstart[10] = 0;
+	   strncpy(rstart, sline+delimiters[18]+10,9);
+	   rstart[9] = 0;
+	   double epoch = (double)atoi(sstart)+(double)atoi(rstart)/1000000000;
+	   strncpy(sstart, sline,10);
+	   sstart[10] = 0;
+	   strncpy(rstart, sline+10,9);
+	   rstart[9] = 0;
+	   if (firsttime == 0)
+	     firsttime = epoch;
+	   double start = (double)atoi(sstart)+(double)atoi(rstart)/1000000000;
+	   processLine(amonProcessingFlowride, num_pkts, sline, epoch, start);
 	}
     }
   save_history();
