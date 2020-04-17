@@ -70,7 +70,7 @@
 
 
 #define BILLION 1000000000L
-
+#define DAY 86400
 using namespace std;
 
 
@@ -81,6 +81,7 @@ int numattack = 0;
 
 // We store delimiters in this array
 int* delimiters;
+
 
 // Something like strtok but it doesn't create new
 // strings. Instead it replaces delimiters with 0
@@ -147,6 +148,7 @@ int trained = 0;
 // Current time
 double curtime = 0;
 double lasttime = 0;
+double lastlogtime = 0;
 
 // Verbose bit
 int verbose = 0;
@@ -775,7 +777,7 @@ void print_alert(int i, cell* c, int na)
     }
 }
 
-void findBestSignature(int i, cell* c)
+void findBestSignature(double curtime, int i, cell* c)
 {
   flow_t bestsig;
   int oci = 0;
@@ -821,7 +823,7 @@ void findBestSignature(int i, cell* c)
   if (!empty(bestsig))
     {
       if (verbose)
-	cout<<"ISIG: "<<i<<" installed sig "<<printsignature(bestsig)<<endl;
+	cout<<curtime<<" ISIG: "<<i<<" volume "<<c->databrick_p[i]<<" oci "<<c->databrick_s[i]<<" installed sig "<<printsignature(bestsig)<<endl;
 
       // insert signature and reset all the stats
       if (sim_filter)
@@ -856,49 +858,6 @@ void findBestSignature(int i, cell* c)
 // This function detects an attack
 void detect_attack(cell* c)
 {
-  // If verbose, output debugging statistics into DB
-  if (false) // (verbose)
-    {
-      sql::PreparedStatement *stmt;
-      DataBuf buffer((char*)c, sizeof(cell));
-      istream stream(&buffer);
-      pthread_mutex_lock (&sql_lock);
-      bool succ = false;
-      while (!succ)
-	{
-	  try{
-	    stmt = con->prepareStatement ("INSERT INTO stats VALUES (?, ?, ?)");
-	    
-	    stmt->setString(1, label);
-	    stmt->setUInt(2, curtime);
-	    stmt->setBlob(3, &stream);
-	    succ = true;
-	  }
-	  catch(std::exception &e) {
-	    cout << "Exception conn is "<<con<<" error "<<e.what()<<endl;
-	    driver = get_driver_instance();
-	    con = driver->connect("tcp://127.0.0.1:3306", "amon-senss", "St33llab@isi");
-	    con->setSchema("AMONSENSS");
-	  }
-	}
-      succ = false;
-      while (!succ)
-	{
-	  try{
-	    int res = stmt->executeUpdate();
-	    if (res)
-	      {
-		succ = true;
-	      }	    
-	  }
-	  catch(sql::SQLException &e) {
-	    cout << " (MySQL error code: " << e.getErrorCode();
-	    cout << ", SQLState: " << e.getSQLState() << " )" << endl;
-	  }
-	}
-      delete stmt;
-      pthread_mutex_unlock (&sql_lock);
-    }
   // For each bin
   for (int i=0;i<BRICK_DIMENSION;i++)
     {
@@ -907,7 +866,25 @@ void detect_attack(cell* c)
       double stdv = sqrt(stats[hist][ss][vol][i]/(stats[hist][n][vol][i]-1));
       double avgs = stats[hist][avg][sym][i];
       double stds = sqrt(stats[hist][ss][sym][i]/(stats[hist][n][sym][i]-1));
-
+      int volume = c->databrick_p[i];
+      int asym = c->databrick_s[i];
+      
+      if (verbose)
+	{
+	  ofstream out;
+	  char filename[200];
+	  sprintf(filename, "/mnt/senss/logs/bin%d.txt", i);
+	  out.open(filename, std::ios_base::app);
+	  out<<(long)curtime<<"  "<<avgv<<" "<<stdv<<" "<<volume<<" "<<avgs<<" "<<stds<<" "<<asym<<" "<<is_abnormal[i]<<endl;
+	  out.close();
+	  if (lastlogtime == 0)
+	    lastlogtime = curtime;
+	  if (curtime - lastlogtime >= DAY)
+	    {
+	      system("./mvlogs");
+	      lastlogtime = curtime;
+	    }
+	}
       if (is_attack[i] == true)
 	{
 	  // Check if we have collected enough matches
@@ -967,7 +944,7 @@ void detect_attack(cell* c)
 		    cout<<"AT: Attack detected on "<<i<<" but not reported yet vol "<<c->databrick_p[i]<<" oci "<<c->databrick_s[i]<<" max oci "<<int(parms["max_oci"])<<endl;
 		  
 		  // Find the best signature
-		  findBestSignature(i, c);
+		  findBestSignature(curtime, i, c);
 		}
 	    }
 	  // Training is completed and both volume and symmetry are normal
