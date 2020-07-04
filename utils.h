@@ -30,10 +30,11 @@
 
 using namespace std;
 
-#define NUMF 5                    // How many ways do we bin the traffic
-enum ways{FOR, LOC, LOCPREF, FPORT, LPORT};
+#define ADELAY 3
+#define NUMF 8                    // How many ways do we bin the traffic
+enum ways{LHOST, LPREF, FPORT, LPORT, LHFPORT, LHLPORT, LPFPORT, LPLPORT};
 
-#define BRICK_UNIT 701           // How many bins we have. This should NOT be a power of 2
+#define BRICK_UNIT 3137            // How many bins we have. This should NOT be a power of 2
 #define BRICK_DIMENSION NUMF*BRICK_UNIT // There are NUMF variants of how we can bin the traffic (e.g., by port, by dst IP, etc.)
 #define SIGTIME 1
 #define REPORT_THRESH 30
@@ -47,12 +48,12 @@ enum ways{FOR, LOC, LOCPREF, FPORT, LPORT};
 #define QSIZE 100                 // How many timestamps can I accumulate before processing
 
 #define SIG_FLOWS 100             // This many flows must be collected, at least, to evaluate a signature
-#define MIN_SAMPLES 0.5          // We must have samples for at least this fraction of training period to
+#define MIN_SAMPLES 0.1           // We must have samples for at least this fraction of training period to
                                   // roll over current stats into historical stats
 
 #define ALPHA 0.5                 // Constant for weighted average of filtering effectiveness
 #define EFF_THRESH 0.5            // If we're dropping less than this much traffic, we need a better signature
-enum protos {TCP=6, UDP=17};      // Transport protocols we work with. We ignore other traffic
+enum protos {TCP=6, UDP=17, ICMP=1}; // Transport protocols we work with. We ignore other traffic
 
 
 
@@ -70,9 +71,9 @@ class flow_t{
 
  public:
   unsigned int src;
-  unsigned short sport;
+  short sport;
   unsigned int dst;
-  unsigned short dport;
+  short dport;
   unsigned char proto;
   int slocal;
   int dlocal;
@@ -80,10 +81,10 @@ class flow_t{
   flow_t()
     {
       src = 0;
-      sport = 0;
+      sport = -1;
       dst = 0;
-      dport = 0;
-      proto = 0;
+      dport = -1;
+      proto = -1;
       slocal = 0;
       dlocal = 0;
     }
@@ -191,13 +192,13 @@ struct sortbyFilename
 // Some function prototypes. Functions are defined in utils.cc
 int myhash(u_int32_t ip, unsigned short port, int way);
 int sgn(double x);
-int bettersig(flow_t a, flow_t b);
+bool bettersig(flow_t a, flow_t b);
 string printsignature(flow_t s);
 int loadservices(const char* fname);
 void loadprefixes(const char* fname);
-int isservice(int port);
-int islocal(u_int32_t ip);
+bool isservice(int port);
+bool islocal(u_int32_t ip);
 int zeros(flow_t f);
 unsigned int todec(string ip);
-
+bool empty(flow_t sig);
 #endif
