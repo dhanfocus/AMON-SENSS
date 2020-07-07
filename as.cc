@@ -173,6 +173,7 @@ enum period{cur, hist};
 enum type{n, avg, ss};
 enum dim{vol, sym};
 double stats[2][3][2][BRICK_DIMENSION]; // historical and current stats for attack detection
+double cusum[2][BRICK_DIMENSION];
 string label;
 
 // Parameters from as.config
@@ -455,7 +456,23 @@ int abnormal(int type, int index, cell* c)
       parms["min_train"]*MIN_SAMPLES)
     return 0;
 
-  // Volume larger than mean + num_std*stdev is abnormal 
+  // calculate cusum
+  double tmp = cusum[type][index] + data - mean - 3*std;
+  if (tmp > 0)
+    cusum[type][index] = tmp;
+  else
+    cusum[type][index] = 0;
+
+  double rto = cusum[type][index]/(std+1);
+
+  if (index == 13207)
+    cout<<curtime<<" Cusum for type "<<type<<" data "<<data<<" mean "<<mean<<" std "<<std<<" is "<<cusum[type][index]<<" rto "<<rto<<endl;
+  
+  if (rto > 0)
+    return rto;
+  else
+    return 0;
+  /* Volume larger than mean + num_std*stdev is abnormal 
   if (data > mean + parms["num_std"]*std)
     {
       return 1;
@@ -464,6 +481,7 @@ int abnormal(int type, int index, cell* c)
     {
       return 0;
     }
+  */
 }
 
 // Print alert into the alerts file
@@ -476,8 +494,8 @@ void print_alert(int i, cell* c, int na)
   double stdv = sqrt(stats[hist][ss][vol][i]/(stats[hist][n][vol][i]-1));
   double avgs = stats[hist][avg][sym][i];
   double stds = sqrt(stats[hist][ss][sym][i]/(stats[hist][n][sym][i]-1));
-  long int rate = c->databrick_p[i]/diff - avgv - parms["num_std"]*stdv;
-  long int roci = c->databrick_s[i]/diff - avgs - parms["num_std"]*stds;
+  long int rate = c->databrick_p[i] - avgv - parms["num_std"]*stdv;
+  long int roci = c->databrick_s[i] - avgs - parms["num_std"]*stds;
   
   // Write the start of the attack into alerts
   ofstream out;
@@ -488,8 +506,8 @@ void print_alert(int i, cell* c, int na)
   
   out.open("alerts.txt", std::ios_base::app);
   out<<na<<" "<<i/BRICK_UNIT<<" "<<(long)curtime<<" ";
-  out<<"START "<<i<<" "<<rate;
-  out<<" "<<roci<<" ";
+  out<<"START "<<i<<" "<<abs(rate);
+  out<<" "<<abs(roci)<<" ";
   out<<printsignature(signatures[i].sig)<<endl;
   out.close();
   
@@ -674,14 +692,21 @@ void instant_detect(cell* c, double ltime, int i)
 	  if (d > parms["max_oci"])
 	    d = parms["max_oci"];
 	  
+	  if (a >= parms["cusum_thresh"] && b >= parms["cusum_thresh"])
+	    is_abnormal[i] = int(parms["attack_high"]);
+	  else
+	    is_abnormal[i] = a+b;
+
+	  /*			 
 	  // Increase abnormal score, but cap at attack_high
 	  if (is_abnormal[i] < int(parms["attack_high"]))
-	    is_abnormal[i] += int(d+1);
+	  is_abnormal[i] += int(d+1);
 	  if (is_abnormal[i] > int(parms["attack_high"]))
-	    is_abnormal[i] = int(parms["attack_high"]);
+	  is_abnormal[i] = int(parms["attack_high"]);
+	  */
 	  
 	  if (verbose)
-	    cout<<ltime<<" abnormal for "<<i<<" points "<<is_abnormal[i]<<" oci "<<c->databrick_s[i]<<" ranges " <<avgs<<"+-"<<stds<<", vol "<<c->databrick_p[i]<<" ranges " <<avgv<<"+-"<<stdv<<" over mean "<<d<<endl;
+	    cout<<ltime<<" abnormal for "<<i<<" points "<<is_abnormal[i]<<" oci "<<c->databrick_s[i]<<" ranges " <<avgs<<"+-"<<stds<<", vol "<<c->databrick_p[i]<<" ranges " <<avgv<<"+-"<<stdv<<" over mean "<<d<<" a "<<a<<" b "<<b<<" cusum thresh " << parms["cusum_thresh"]<<endl;
 
 	  // If abnormal score is above attack_low
 	  // and oci is above MAX_OCI
@@ -828,6 +853,8 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
   //  return;
   //}
 
+  vector<int> d_buckets, s_buckets;
+  
   for (int way = LHOST; way <= LPLPORT; way++) 
     {
       // Find buckets on which to work
@@ -837,7 +864,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic to LHOST/LPREF
 	      d_bucket = myhash(flow.dst, 0, way);
-	      //if (flow.dst == 1093564320)
+	      //if (flow.dst == 732944783)
 	      //cout<<"LHOST or LPREF "<<d_bucket<<endl;
 
 	      c->databrick_p[d_bucket] += len;
@@ -860,8 +887,8 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic from FPORT
 	      s_bucket = myhash(0, flow.sport, way);
-	      //if (flow.dst == 1093564320 && flow.proto == ICMP)
-	      //	cout<<"FPORT "<<d_bucket<<endl;
+	      //if (flow.dst == 732944783 && flow.sport == 53)
+	      //cout<<"FPORT "<<s_bucket<<endl;
 	      c->databrick_p[s_bucket] += len;
 	      c->databrick_s[s_bucket] += oci;
 	      addSample(s_bucket, &fp, way);
@@ -882,8 +909,8 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic to LPORT
 	      d_bucket = myhash(0, flow.dport, way);
-	      //if (flow.dst == 1093564320 && flow.proto == ICMP)
-		//	cout<<"LPORT "<<d_bucket<<endl;
+	      //if (flow.dst == 732944783 && flow.dport == 53)
+	      //cout<<"LPORT "<<d_bucket<<endl;
 	      c->databrick_p[d_bucket] += len;
 	      c->databrick_s[d_bucket] += oci;
 	      addSample(d_bucket, &fp, way);
@@ -904,7 +931,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic from FPORT
 	      s_bucket = myhash(flow.dst, flow.sport, way);
-	      //if (flow.dst == 1093564320 && flow.proto == ICMP)
+	      //if (flow.dst == 732944783 && flow.sport == 53)
 	      //cout<<"LHFPORT "<<s_bucket<<endl;
 
 	      c->databrick_p[s_bucket] += len;
@@ -929,7 +956,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic to LPORT
 	      d_bucket = myhash(flow.dst, flow.dport, way);
-	      //if (flow.dst == 1093564320 && flow.proto == ICMP)
+	      //if (flow.dst == 732944783 && flow.dport == 53)
 	      //cout<<"LHLPORT "<<d_bucket<<endl;
 	      c->databrick_p[d_bucket] += len;
 	      c->databrick_s[d_bucket] += oci;
@@ -981,12 +1008,10 @@ void update_stats(cell* c)
 		    (data-ao)*(data - stats[cur][avg][j][i]);
 		}
 	    }
-	  //if (i == 4057)
-	  //cout<<" i "<<i<<" j "<<j<<" cur avg "<<stats[cur][avg][j][i]<<" ss "<<stats[cur][ss][j][i]<<" n "<<stats[cur][n][j][i]<<" data "<<data<<" cell "<<c<<endl;
 	}      
     }
   trained = (lasttime - firsttime);
-  //cout<<"Trained "<<trained<<" lasttime "<<lasttime<<" firsttime "<<firsttime<<endl; // Jelena
+
   if (trained >= parms["min_train"])
     {
       if (!training_done)
@@ -1004,12 +1029,8 @@ void update_stats(cell* c)
 	    // If the attack was long maybe we don't
 	    if (stats[cur][n][j][i] <
 		parms["min_train"]*MIN_SAMPLES)
-	      {
-		cout<<"Too few samples for "<<i<<endl;
-		continue;
-	      }
-	    //if (i == 4185)
-	      // cout<<"Hist for x "<<x<<" j "<<j<<" i "<<i<<stats[cur][x][j][i]<<" samples "<<stats[cur][n][j][i]<<endl;
+	      continue;
+
 	    if (stats[cur][x][j][i] == 0)
 	      stats[hist][x][j][i] = 0.5*stats[hist][x][j][i] + 0.5*stats[cur][x][j][i];
 	    else
@@ -1052,8 +1073,6 @@ void detect_attack(cell* c, double ltime)
 	}
       if (is_attack[i] == true)
 	{
-	  //if (i == 9464)
-	  //cout<<"Matched "<<signatures[i].nm<<" for bucket for sport 53\n";
 	  // Check if we have collected enough matches
 	  if (signatures[i].nm == MM)
 	    {
@@ -1073,55 +1092,16 @@ void detect_attack(cell* c, double ltime)
 	}
       else if (!is_attack[i])
 	{
-	  // If both volume and asymmetry are abnormal and training has completed
-	  int a = abnormal(vol, i, c);
-	  int b = abnormal(sym, i, c);
-	  int volume = c->databrick_p[i];
-	  int asym = c->databrick_s[i];
-	  if (training_done && abnormal(vol, i, c) && abnormal(sym, i, c))
-	    {
-	      double aavgs = abs(avgs);
-	      double astds = abs(stds);
-	      if (astds == 0)
-		astds = 1;
-	      double d = abs(abs(asym) - abs(avgs) - parms["num_std"]*abs(stds))/astds;
-	      if (d > parms["max_oci"])
-		d = parms["max_oci"];
-	      
-	      // Increase abnormal score, but cap at attack_high
-	      if (is_abnormal[i] < int(parms["attack_high"]))
-		is_abnormal[i] += int(d+1);
-	      if (is_abnormal[i] > int(parms["attack_high"]))
-		is_abnormal[i] = int(parms["attack_high"]);
-	      
-	      if (verbose)
-		cout<<ltime<<" abnormal for "<<i<<" points "<<is_abnormal[i]<<" oci "<<c->databrick_s[i]<<" ranges " <<avgs<<"+-"<<stds<<", vol "<<c->databrick_p[i]<<" ranges " <<avgv<<"+-"<<stdv<<" over mean "<<d<<endl;
-
-	      // If abnormal score is above attack_low
-	      // and oci is above MAX_OCI
-	      if (is_abnormal[i] >= int(parms["attack_low"])
-		  && !is_attack[i] && abs(c->databrick_s[i]) >= int(parms["max_oci"]))
-		{
-		  // Signal attack detection 
-		  is_attack[i] = true;
-		  if (verbose)
-		    cout<<"AT: Attack detected on "<<i<<" but not reported yet vol "<<c->databrick_p[i]<<" oci "<<c->databrick_s[i]<<" max oci "<<int(parms["max_oci"])<<endl;
-		  
-		  // Find the best signature
-		  findBestSignature(ltime, i, c);
-		}
-	    }
 	  // Training is completed and both volume and symmetry are normal
-	  else if (training_done && !abnormal(vol, i, c) && !abnormal(sym, i, c))
+	  if (training_done && !abnormal(vol, i, c) && !abnormal(sym, i, c))
 	    {
-	      // if (verbose)
-	      //cout<<curtime<<" is normal for "<<i<<" points "<<is_abnormal[i]<<" oci "<<c->databrick_s[i]<<" ranges " <<avgs<<"+-"<<stds<<", vol "<<c->databrick_p[i]<<" ranges " <<avgv<<"+-"<<stdv<<endl;
 	      // Reduce abnormal score
 	      if (is_abnormal[i] > 0)
 		{
 		  is_abnormal[i] --;
 		}
-	      clearSamples(i);
+	      if (is_abnormal[i] == 0)
+		clearSamples(i);
 	    }
 	}
     }
@@ -1383,13 +1363,13 @@ void amonProcessingNfdump (char* line, double time)
   
   pkts = (int)(pkts/(dur+1))+1;
   bytes = (int)(bytes/(dur+1))+1;
-  /*
+
   if (pkts < minpkts)
     {
       pkts = minpkts;
       bytes = minbytes;
     }
-  */
+
   //cout<<std::fixed<<"Jelena "<<start<<" "<<end<<" "<<pkts<<" "<<bytes<<endl;
   /* Is this outstanding connection? For TCP, connections without 
      PUSH are outstanding. For UDP, connections that have a request
