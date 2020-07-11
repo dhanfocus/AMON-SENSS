@@ -292,14 +292,16 @@ bool compliantsig(int i, flow_t sig)
   switch (i/BRICK_UNIT)
     {
     case 0:
-      return (sig.src != 0 && sig.dst != 0);
     case 1:
+      return (sig.dst != 0 && (sig.dport != -1 || sig.sport != -1 || sig.proto == ICMP));
     case 2:
-      return (sig.dst != 0 && (sig.src != 0 || sig.dport != -1 || sig.sport != -1));
-    case 3:
-      return (sig.sport != -1 && sig.dst != 0);
     case 4:
-      return (sig.dport != -1 && sig.dst != 0);
+    case 5:
+      return (sig.dst != 0 && (sig.sport != 0 || sig.proto == ICMP));
+    case 3:
+    case 6:
+    case 7:
+      return (sig.dst != 0 && (sig.dport != 0 || sig.proto == ICMP));
     default:
       return false;
     }
@@ -439,7 +441,7 @@ int malformed(double timestamp)
 }
 
 // Function to detect values higher than mean + parms[num_std] * stdev 
-int abnormal(int type, int index, cell* c)
+double abnormal(int type, int index, cell* c)
 {
   // Look up std and mean
   double mean = stats[hist][avg][type][index];
@@ -458,15 +460,13 @@ int abnormal(int type, int index, cell* c)
 
   // calculate cusum
   double tmp = cusum[type][index] + data - mean - 3*std;
-  if (tmp > 0)
-    cusum[type][index] = tmp;
-  else
-    cusum[type][index] = 0;
+  if (tmp < 0)
+    tmp = 0;
+  
+  double rto = tmp/(std+1);
 
-  double rto = cusum[type][index]/(std+1);
-
-  if (index == 13207)
-    cout<<curtime<<" Cusum for type "<<type<<" data "<<data<<" mean "<<mean<<" std "<<std<<" is "<<cusum[type][index]<<" rto "<<rto<<endl;
+  //if (index == 13207)
+  //cout<<curtime<<" Cusum for type "<<type<<" data "<<data<<" mean "<<mean<<" std "<<std<<" is "<<cusum[type][index]<<" rto "<<rto<<endl;
   
   if (rto > 0)
     return rto;
@@ -512,12 +512,15 @@ void print_alert(int i, cell* c, int na)
   out.close();
   
   // Save evidence of attack
-  char filename[MAXLINE];
-  sprintf(filename, "%s/attack%d", sparms["evids"].c_str(), na);
-  out.open(filename, std::ios_base::app);
-  for (int j=0; j < signatures[i].nm; j++)
-    out<<signatures[i].matches[j];
-  out.close();
+  if (false) // Jelena put back
+    {
+      char filename[MAXLINE];
+      sprintf(filename, "%s/attack%d", sparms["evids"].c_str(), na);
+      out.open(filename, std::ios_base::app);
+      for (int j=0; j < signatures[i].nm; j++)
+	out<<signatures[i].matches[j];
+      out.close();
+    }
   pthread_mutex_unlock(&cnt_lock);
   
   // Check if we should rotate file
@@ -561,23 +564,23 @@ void alert_ready(cell* c, int bucket)
   clearSamples(bucket);
 }
 
+void checkReady(int bucket, cell* c)
+{
+  if (signatures[bucket].nm < MM)
+    {
+      strcpy(signatures[bucket].matches[signatures[bucket].nm++], saveline);
+      if (signatures[bucket].nm == MM)
+	{
+	  alert_ready(c, bucket);
+	}
+    }
+}
+
 // Should we filter this flow?
 bool shouldFilter(int bucket, flow_t flow, cell* c)
 {
   if (!empty(signatures[bucket].sig) && match(flow,signatures[bucket].sig))
-    {
-      //if (bucket == 9464)
-      //cout<<"Matched bucket nm "<<signatures[bucket].nm<<endl;
-      if (signatures[bucket].nm < MM)
-	{
-	  strcpy(signatures[bucket].matches[signatures[bucket].nm++], saveline);
-	  if (signatures[bucket].nm == MM)
-	    {
-	      alert_ready(c, bucket);
-	    }
-	}
-        return true;
-    }
+    return true;
   else
     return false;
 }
@@ -647,11 +650,11 @@ void findBestSignature(double curtime, int i, cell* c)
       // Now remove abnormal measure and samples, we're done
       // Leave some measure of abnormal so we don't go ahead and
       // update statistics
-      is_abnormal[i] = 1;
+      //is_abnormal[i] = 1;
       // Clear samples
       clearSamples(i);
       // Clear attack detection time
-      detection_time[i] = 0;
+      //detection_time[i] = 0;
     }
   // Did not find a good signature
   // drop the attack signal and try again later
@@ -678,8 +681,8 @@ void instant_detect(cell* c, double ltime, int i)
   if (!is_attack[i])
     {
       // If both volume and asymmetry are abnormal and training has completed
-      int a = abnormal(vol, i, c);
-      int b = abnormal(sym, i, c);
+      double a = abnormal(vol, i, c);
+      double b = abnormal(sym, i, c);
       int volume = c->databrick_p[i];
       int asym = c->databrick_s[i];
 
@@ -695,8 +698,11 @@ void instant_detect(cell* c, double ltime, int i)
 	  if (a >= parms["cusum_thresh"] && b >= parms["cusum_thresh"])
 	    is_abnormal[i] = int(parms["attack_high"]);
 	  else
-	    is_abnormal[i] = a+b;
-
+	    {
+	      is_abnormal[i] = a+b;
+	      if (is_abnormal[i] > int(parms["attack_high"]))
+		is_abnormal[i] = int(parms["attack_high"])/2;
+	    }
 	  /*			 
 	  // Increase abnormal score, but cap at attack_high
 	  if (is_abnormal[i] < int(parms["attack_high"]))
@@ -789,6 +795,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 		      is_filtered = true;
 		      c->wfilter_p[d_bucket] += len;
 		      c->wfilter_s[d_bucket] += oci;
+		      checkReady(d_bucket,c);
 		      //if (d_bucket == 3493)
 		      //cout<<"Match filtering "<<printsignature(flow)<<" len "<<len<<" oci "<<oci<<" filtered "<<c->wfilter_p[d_bucket]<<" "<< c->wfilter_s[s_bucket]<<" start "<<start<<" end "<<end<<endl;
 		    }
@@ -810,6 +817,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 		      is_filtered = true;
 		      c->wfilter_p[s_bucket] += len;
 		      c->wfilter_s[s_bucket] += oci;
+		      checkReady(s_bucket,c);
 		    }
 		}
 	    }
@@ -824,6 +832,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 		      is_filtered = true;
 		      c->wfilter_p[d_bucket] += len;
 		      c->wfilter_s[d_bucket] += oci;
+		      checkReady(d_bucket,c);
 		    }
 		}
 	    }
@@ -842,6 +851,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 		      is_filtered = true;
 		      c->wfilter_p[d_bucket] += len;
 		      c->wfilter_s[d_bucket] += oci;
+		      checkReady(d_bucket,c);
 		    }
 		}
 	    }
@@ -1054,8 +1064,27 @@ void detect_attack(cell* c, double ltime)
       double stds = sqrt(stats[hist][ss][sym][i]/(stats[hist][n][sym][i]-1));
       int volume = c->databrick_p[i];
       int asym = c->databrick_s[i];
+
+      // Update cusum
+      for (int type = 0; type <= 1; type++)
+	{
+	  int data = volume;
+	  double mean = avgv;
+	  double std = stdv;
+	  if (type == 1)
+	    {
+	      data = asym;
+	      mean = avgs;
+	      std = stds;
+	    }
+	  double tmp = cusum[type][i] + data - mean - 3*std;
+	  if (tmp > 0)    
+	    cusum[type][i] = tmp;
+	  else
+	    cusum[type][i] = 0;
+	}
       
-      if (verbose)
+      if (verbose & 0) // Block it temporarily
 	{
 	  ofstream out;
 	  char filename[200];
@@ -1358,7 +1387,7 @@ void amonProcessingNfdump (char* line, double time)
   else
     {
       minpkts = 4096;
-      minbytes = bytes/(pkts/4096);
+      minbytes = bytes/(pkts/4096+1);
     }
   
   pkts = (int)(pkts/(dur+1))+1;
