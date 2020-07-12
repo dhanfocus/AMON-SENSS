@@ -302,6 +302,15 @@ bool compliantsig(int i, flow_t sig)
     case 6:
     case 7:
       return (sig.dst != 0 && (sig.dport != 0 || sig.proto == ICMP));
+    case 8:
+    case 9:
+    case 10:
+    case 11:
+    case 12:
+    case 13:
+    case 14:
+    case 15:
+      return (sig.dst != 0 && sig.flags != 0);
     default:
       return false;
     }
@@ -326,7 +335,9 @@ void addSample(int index, flow_p* f, int way)
 {
   // Create some partial signatures for this flow, like src-dst combination,
   // src-sport, etc. Don't allow just protocol
-  for (int s=1; s<NF; s++)
+  // Don't add samples for flags separately since they are already going
+  // to separate bins
+  for (int s=1; s<NF-8; s++)
     {
       pthread_mutex_lock(&samples_lock);
       
@@ -340,19 +351,20 @@ void addSample(int index, flow_p* f, int way)
 	k.dst = f->flow.dst;
       if ((s & 1) > 0 && isservice(f->flow.dport))
 	k.dport = f->flow.dport;
-      
       //if (index == 3493)
       //cout<<"s="<<s<<printsignature(k)<<" sport "<<f->flow.sport<<endl;
-      if (way == LHOST || way == LPREF || way == LHFPORT || way == LHLPORT || way == LPFPORT || way == LPLPORT)
+      if (way == LHOST || way == LPREF || way == LHFPORT || way == LHLPORT || way == LPFPORT || way == LPLPORT || way == LHSYN || way == LPSYN || way == LHSYNACK || way == LPSYNACK || way == LHRST || way == LPRST)
 	{
 	  k.dst = f->flow.dst;
-	  if (way == LPREF || way == LPFPORT || way == LPLPORT)
+	  if (way == LPREF || way == LPFPORT || way == LPLPORT || way == LPSYN || way == LPSYNACK || way == LPRST)
 	    k.dst &= 0xffffff00;
 	}
       if (way == FPORT || way == LHFPORT || way == LPFPORT)
 	k.sport = f->flow.sport;
       if (way == LPORT || way == LHLPORT || way == LPLPORT) 
 	k.dport = f->flow.dport;
+      if (way >= LHSYN)
+	k.flags = f->flow.flags;
       
       //if (index == 12205)
       //cout<<"Add sample oci "<<f->oci<<" sig "<<printsignature(k)<<" way "<<way<<" s="<<s<<" current "<<printsignature(samples.bins[index].flows[s].flow)<<" len "<<samples.bins[index].flows[s].len<<" line "<<saveline<<" is attack "<<is_attack[index]<<endl;
@@ -417,7 +429,8 @@ int match(flow_t flow, flow_t sig)
   if ((flow.src == sig.src || sig.src == 0) &&
       (flow.sport == sig.sport || sig.sport == -1) &&
       (flow.dst == sig.dst || sig.dst == 0) &&
-      (flow.dport == sig.dport || sig.dport == -1))
+      (flow.dport == sig.dport || sig.dport == -1) &&
+      ((flow.flags & sig.flags) > 0 || sig.flags == 0))
     {
       return 1;
     }
@@ -782,10 +795,10 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 
   if (sim_filter)
     {
-      for (int way = LHOST; way <= LPLPORT; way++) // SERV is included in CLI
+      for (int way = LHOST; way <= LPRST; way++) // SERV is included in CLI
 	{
 	  // Find buckets on which to work
-	  if (way == LHOST || way == LPREF)
+	  if (way == LHOST || way == LPREF || way >= LHSYN)
 	    {
 	      if (flow.dlocal)
 		{
@@ -865,18 +878,27 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 
   vector<int> d_buckets, s_buckets;
   
-  for (int way = LHOST; way <= LPLPORT; way++) 
+  for (int way = LHOST; way <= LPRST; way++) 
     {
       // Find buckets on which to work
-      if (way == LHOST || way == LPREF)
+      if (way == LHOST || way == LPREF || way == LHSYN || way == LPSYN || way == LHSYNACK || way == LPSYNACK || way == LHACK || way == LPACK || way == LHRST || way == LPRST)
 	{
 	  if (flow.dlocal)
 	    {
 	      // traffic to LHOST/LPREF
 	      d_bucket = myhash(flow.dst, 0, way);
-	      //if (flow.dst == 732944783)
-	      //cout<<"LHOST or LPREF "<<d_bucket<<endl;
-
+	      if (way == LHSYN  || way == LPSYN)
+		if (flow.flags != SYN || flow.proto != TCP)
+		  continue;
+	      if (way == LHSYNACK  || way == LPSYNACK)
+		if (flow.flags != SYNACK || flow.proto != TCP)
+		  continue;
+	      if (way == LHACK  || way == LPACK)
+		if (flow.flags != ACK || flow.proto != TCP)
+		  continue;
+	      if (way == LHRST  || way == LPRST)
+		if (flow.flags != RST || flow.proto != TCP)
+		  continue;
 	      c->databrick_p[d_bucket] += len;
 	      c->databrick_s[d_bucket] += oci;
 	      addSample(d_bucket, &fp, way);
@@ -886,6 +908,18 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic from LHOST/LPREF
 	      s_bucket = myhash(flow.src, 0, way);
+	      if (way == LHSYN || way == LPSYN)
+		if ((flow.flags != SYNACK && flow.flags != ACK && flow.flags != RST) || flow.proto != TCP)
+		  continue;
+	      if (way == LHSYNACK || way == LPSYNACK)
+		if (flow.flags != SYN || flow.proto != TCP)
+		  continue;
+	      if (way == LHACK || way == LPACK)
+		if ((flow.flags != PUSH && flow.flags != PUSHACK) || flow.proto != TCP)
+		  continue;
+	      if (way == LHRST || way == LPRST)
+		if (flow.flags != SYN || flow.proto != TCP)
+		  continue;
 	      c->databrick_p[s_bucket] -= len;
 	      c->databrick_s[s_bucket] -= oci;
 	      instant_detect(c, curtime, s_bucket);
@@ -1360,6 +1394,8 @@ void amonProcessingNfdump (char* line, double time)
   flow.dst = strtol(line+delimiters[13], &tokene, 10);
   flow.dport = atoi(line+delimiters[14]); 
   flow.proto = proto;
+  int flags = atoi(line+delimiters[19]);
+  flow.flags = flags;
   flow.slocal = islocal(flow.src);
   flow.dlocal = islocal(flow.dst);
   bytes = atoi(line+delimiters[22]);
@@ -1372,7 +1408,7 @@ void amonProcessingNfdump (char* line, double time)
       return;
     }
   l++;
-  int flags = atoi(line+delimiters[19]);
+
   pkts = atoi(line+delimiters[21]);
 
   // This is where sampling would be handled
@@ -1398,7 +1434,8 @@ void amonProcessingNfdump (char* line, double time)
       pkts = minpkts;
       bytes = minbytes;
     }
-
+  // End of hack for FRGP
+  
   //cout<<std::fixed<<"Jelena "<<start<<" "<<end<<" "<<pkts<<" "<<bytes<<endl;
   /* Is this outstanding connection? For TCP, connections without 
      PUSH are outstanding. For UDP, connections that have a request

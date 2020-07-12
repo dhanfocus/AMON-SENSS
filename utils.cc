@@ -105,6 +105,10 @@ string printsignature(flow_t s)
       else if (s.proto == ICMP)
 	out += "proto icmp";
     }
+  if (s.proto == TCP)
+    {
+      out += (" and flags " + patch::to_string(s.flags));
+    }
   return out;
 }
 
@@ -122,7 +126,7 @@ int sgn(double x)
 // Is the signature all zeros (i.e. the default signature)
 int zeros(flow_t a)
 {
-  return (a.src == 0) + (a.sport == -1) + (a.dst == 0) + (a.dport == -1) + (a.proto == -1);
+  return (a.src == 0) + (a.sport == -1) + (a.dst == 0) + (a.dport == -1) + (a.proto == -1) + (a.flags == 0);
 }
 
 // Check if the signature contains all zeros
@@ -130,7 +134,7 @@ int zeros(flow_t a)
 bool empty(flow_t sig)
 {
   return ((sig.src == 0) && (sig.sport == -1) &&
-	  (sig.dst == 0) && (sig.dport == -1));
+	  (sig.dst == 0) && (sig.dport == -1) && (sig.flags == 0));
 }
 
 
@@ -153,6 +157,7 @@ int myhash(u_int32_t ip, unsigned short port, int way)
 {
   // 1 - local ip, 2 - local pref /24, 3 - foreign port, 4 - local port,
   // 5 - localip+forport, 6 - localip+localport, 7 - localpref+forport, 8 - localpref+localport
+  // 9 - localip+syn, 10 - localpref+syn, 11 - localip+synack, 12 - localpref+synack, 13 - localip+rst, 14 - localpref+rst
   switch (way)
     {
     case LHOST:
@@ -171,6 +176,22 @@ int myhash(u_int32_t ip, unsigned short port, int way)
       return (((ip & 0xffffff00) + port) % BRICK_UNIT) + 6*BRICK_UNIT;
     case LPLPORT:
       return (((ip & 0xffffff00) + port) % BRICK_UNIT) + 7*BRICK_UNIT;
+    case LHSYN:
+      return (ip % BRICK_UNIT) + 8*BRICK_UNIT;
+    case LPSYN:
+      return ((ip & 0xffffff00) % BRICK_UNIT) + 9*BRICK_UNIT;
+    case LHSYNACK:
+      return (ip % BRICK_UNIT) + 10*BRICK_UNIT;
+    case LPSYNACK:
+      return ((ip & 0xffffff00) % BRICK_UNIT) + 11*BRICK_UNIT;
+    case LHACK:
+      return (ip % BRICK_UNIT) + 12*BRICK_UNIT;
+    case LPACK:
+      return ((ip & 0xffffff00) % BRICK_UNIT) + 13*BRICK_UNIT;
+    case LHRST:
+      return (ip % BRICK_UNIT) + 14*BRICK_UNIT;
+    case LPRST:
+      return ((ip & 0xffffff00) % BRICK_UNIT) + 15*BRICK_UNIT;
     default:
       return 0;
     }
