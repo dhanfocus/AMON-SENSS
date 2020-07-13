@@ -43,7 +43,7 @@ while(<$fh>)
 	$alerts{$target}{$id}{'text'} = $_;
 	$alerts{$target}{$id}{'time'} = $time;
 	$type = 0;
-	if ($_ =~ /proto udp/ && $_ =~ /src port 53/)
+	if ($_ =~ /proto udp/ && $_ =~ /src port 53 /)
 	{
 	    $type = 1;
 	}
@@ -55,15 +55,15 @@ while(<$fh>)
 	{
 	    $type = 8;
 	}
-	elsif ($_ =~ /proto udp/ && $_ =~ /src port 389/)
+	elsif ($_ =~ /proto udp/ && $_ =~ /src port 389 /)
 	{
 	    $type = 16;
 	}
-	elsif ($_ =~ /proto udp/ && $_ =~ /src port 123/)
+	elsif ($_ =~ /proto udp/ && $_ =~ /src port 123 /)
 	{
 	    $type = 256;
 	}
-	elsif ($_ =~ /proto tcp/ && $_ =~ /flags 2/)
+	elsif ($_ =~ /proto tcp/ && $_ =~ /flags 2\n/)
 	{
 	    $type = 1024;
 	}
@@ -75,7 +75,7 @@ while(<$fh>)
 	{
 	    $type = 32;
 	}
-	elsif ($_ =~ /proto tcp/ && $_ =~ /flags 4/)
+	elsif ($_ =~ /proto tcp/ && $_ =~ /flags 4\n/)
 	{
 	    $type = 64;
 	}

@@ -31,8 +31,8 @@
 using namespace std;
 
 #define ADELAY 35
-#define NUMF 8                    // How many ways do we bin the traffic
-enum ways{LHOST, LPREF, FPORT, LPORT, LHFPORT, LHLPORT, LPFPORT, LPLPORT};
+#define NUMF 16                    // How many ways do we bin the traffic
+enum ways{LHOST, LPREF, FPORT, LPORT, LHFPORT, LHLPORT, LPFPORT, LPLPORT, LHSYN, LPSYN, LHSYNACK, LPSYNACK, LHACK, LPACK, LHRST, LPRST};
 
 #define BRICK_UNIT 3137            // How many bins we have. This should NOT be a power of 2
 #define BRICK_DIMENSION NUMF*BRICK_UNIT // There are NUMF variants of how we can bin the traffic (e.g., by port, by dst IP, etc.)
@@ -44,7 +44,7 @@ enum ways{LHOST, LPREF, FPORT, LPORT, LHFPORT, LHLPORT, LPFPORT, LPLPORT};
 #define MM 1                      // Samples of flows that match a signature
 #define AR_LEN 30                 // How many delimiters may be in an array
 #define MAX_DIFF 10               // How close should a timestamp be to the one where attack is detected
-#define NF 16                     // Number of different signatures for a flow
+#define NF 20                     // Number of different signatures for a flow
 #define QSIZE 100                 // How many timestamps can I accumulate before processing
 
 #define SIG_FLOWS 100             // This many flows must be collected, at least, to evaluate a signature
@@ -54,6 +54,7 @@ enum ways{LHOST, LPREF, FPORT, LPORT, LHFPORT, LHLPORT, LPFPORT, LPLPORT};
 #define ALPHA 0.5                 // Constant for weighted average of filtering effectiveness
 #define EFF_THRESH 0.5            // If we're dropping less than this much traffic, we need a better signature
 enum protos {TCP=6, UDP=17, ICMP=1}; // Transport protocols we work with. We ignore other traffic
+enum flags {SYN=2, SYNACK=18, PUSH=8, PUSHACK = 24, RST=4, ACK=16}; // Flags we work with for detection of flag-specific attacks
 
 
 
@@ -75,6 +76,7 @@ class flow_t{
   unsigned int dst;
   short dport;
   unsigned char proto;
+  int flags;
   int slocal;
   int dlocal;
   
@@ -85,6 +87,7 @@ class flow_t{
       dst = 0;
       dport = -1;
       proto = -1;
+      flags = 0;
       slocal = 0;
       dlocal = 0;
     }
@@ -111,12 +114,17 @@ class flow_t{
       {
 	return true;
       }
+    else if (src == rhs.src && sport == rhs.sport && dst == rhs.dst && dport == rhs.dport && proto == rhs.proto && flags < rhs.flags)
+      {
+	return true;
+      }
     else
       return false;
   }
   
   bool operator==(const flow_t& rhs) const
   {
+    // We don't compare flags since they have their separate bin
     return (src == rhs.src) && (dst == rhs.dst) && (sport == rhs.sport) && (dport == rhs.dport) && (proto == rhs.proto);
   }
 };
