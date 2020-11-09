@@ -54,14 +54,6 @@
 #include <pcap.h>
 #include <dirent.h>
 
-// MySQL includes
-#include "mysql_connection.h"
-
-#include <cppconn/driver.h>
-#include <cppconn/exception.h>
-#include <cppconn/resultset.h>
-#include <cppconn/statement.h>
-#include <cppconn/prepared_statement.h>
 
 // Limits
 #include<bits/stdc++.h> 
@@ -136,8 +128,8 @@ stat_r signatures[BRICK_DIMENSION];
 int is_abnormal[BRICK_DIMENSION];
 // Did we detect an attack in this bin
 int is_attack[BRICK_DIMENSION];
-// Should we allow broad signatures
-int broad_allowed[BRICK_DIMENSION];
+// When we detected the attack
+unsigned long detection_time[BRICK_DIMENSION];
 // Are we simulating filtering. 
 bool sim_filter = false;
 
@@ -149,6 +141,7 @@ int trained = 0;
 double curtime = 0;
 double lasttime = 0;
 double lastlogtime = 0;
+double lastbintime = 0;
 
 // Verbose bit
 int verbose = 0;
@@ -171,7 +164,7 @@ bool is_flowride = false;
 
 // Serialize access to statistics
 pthread_mutex_t cells_lock = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t sql_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t samples_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t cnt_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t rst_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -180,15 +173,13 @@ enum period{cur, hist};
 enum type{n, avg, ss};
 enum dim{vol, sym};
 double stats[2][3][2][BRICK_DIMENSION]; // historical and current stats for attack detection
+double cusum[2][BRICK_DIMENSION];
 string label;
 
 // Parameters from as.config
 map<string,double> parms;
+map<string,string> sparms;
 
-// Variables for DB access
-sql::Driver *driver;
-sql::Connection *con;
-sql::ResultSet *res;
 
 
 // Keeping track of procesed flows
@@ -235,7 +226,7 @@ char *trim(char *str)
 
 // Parse configuration file and load into parms
 void
-parse_config (map <string,double>& parms)
+parse_config(map <string,double>& parms, map <string,string>& sparms)
 {
   char *s, buff[256];
   FILE *fp = fopen ("as.config", "r");
@@ -282,19 +273,14 @@ parse_config (map <string,double>& parms)
 	trim(name);
 	trim(value);
 	cout<<"Parm "<<name<<" val "<<value<<endl;
-	parms.insert(pair<string,double>(name,strtod(value,0)));
+	if (!strcmp(name,"logs") || !strcmp(name,"evids"))
+	  sparms.insert(pair<string,string>(name, value));
+	else
+	  parms.insert(pair<string,double>(name,strtod(value,0)));
   }
   fclose (fp);
 }
 
-
-// Check if the signature contains all zeros
-// proto doesn't count
-int empty(flow_t sig)
-{
-  return ((sig.src == 0) && (sig.sport == 0) &&
-	  (sig.dst == 0) && (sig.dport == 0));
-}
 
 // Check if the signature is subset or matches
 // exactly the slot where anomaly was found.
@@ -306,14 +292,25 @@ bool compliantsig(int i, flow_t sig)
   switch (i/BRICK_UNIT)
     {
     case 0:
-      return (sig.src != 0);
     case 1:
+      return (sig.dst != 0 && (sig.dport != -1 || sig.sport != -1 || sig.proto == ICMP));
     case 2:
-      return (sig.dst != 0 && (sig.src != 0 || sig.dport != 0 || sig.sport != 0));
-    case 3:
-      return (sig.sport != 0 && (sig.dst != 0 || sig.dport != 0 || sig.sport != 0));
     case 4:
-      return (sig.dport != 0 && (sig.dst != 0 || sig.src != 0 || sig.sport != 0));
+    case 5:
+      return (sig.dst != 0 && (sig.sport != 0 || sig.proto == ICMP));
+    case 3:
+    case 6:
+    case 7:
+      return (sig.dst != 0 && (sig.dport != 0 || sig.proto == ICMP));
+    case 8:
+    case 9:
+    case 10:
+    case 11:
+    case 12:
+    case 13:
+    case 14:
+    case 15:
+      return (sig.dst != 0 && sig.flags != 0);
     default:
       return false;
     }
@@ -323,12 +320,14 @@ bool compliantsig(int i, flow_t sig)
 void clearSamples(int index)
 {
   flow_t key;
+  pthread_mutex_lock(&samples_lock);
   for (int s=1; s<NF; s++)
     {
       samples.bins[index].flows[s].flow = key;
       samples.bins[index].flows[s].len = 0;
       samples.bins[index].flows[s].oci = 0;
     }
+  pthread_mutex_unlock(&samples_lock);
 }
 
 // Add a flow to the samples bin
@@ -336,31 +335,39 @@ void addSample(int index, flow_p* f, int way)
 {
   // Create some partial signatures for this flow, like src-dst combination,
   // src-sport, etc. Don't allow just protocol
-  for (int s=1; s<NF; s++)
+  // Don't add samples for flags separately since they are already going
+  // to separate bins
+  for (int s=1; s<NF-8; s++)
     {
+      pthread_mutex_lock(&samples_lock);
+      
       flow_t k;
       k.proto = f->flow.proto;
-      if ((s & 8) > 0)
+      if ((s & 8) > 0) // Jelena
 	k.src = f->flow.src;
-      if ((s & 4) > 0)
+      if ((s & 4) > 0 && isservice(f->flow.sport))
 	k.sport = f->flow.sport;
       if ((s & 2) > 0)
 	k.dst = f->flow.dst;
-      if ((s & 1) > 0)
+      if ((s & 1) > 0 && isservice(f->flow.dport))
 	k.dport = f->flow.dport;
-      if (way == FOR)
-	k.src = f->flow.src;
-      else if (way == LOC || way == LOCPREF)
+      //if (index == 3493)
+      //cout<<"s="<<s<<printsignature(k)<<" sport "<<f->flow.sport<<endl;
+      if (way == LHOST || way == LPREF || way == LHFPORT || way == LHLPORT || way == LPFPORT || way == LPLPORT || way == LHSYN || way == LPSYN || way == LHSYNACK || way == LPSYNACK || way == LHRST || way == LPRST)
 	{
 	  k.dst = f->flow.dst;
-	  if (way == LOCPREF)
+	  if (way == LPREF || way == LPFPORT || way == LPLPORT || way == LPSYN || way == LPSYNACK || way == LPRST)
 	    k.dst &= 0xffffff00;
 	}
-      else if (way == FPORT)
+      if (way == FPORT || way == LHFPORT || way == LPFPORT)
 	k.sport = f->flow.sport;
-      else if (way == LPORT)
+      if (way == LPORT || way == LHLPORT || way == LPLPORT) 
 	k.dport = f->flow.dport;
-
+      if (way >= LHSYN)
+	k.flags = f->flow.flags;
+      
+      //if (index == 12205)
+      //cout<<"Add sample oci "<<f->oci<<" sig "<<printsignature(k)<<" way "<<way<<" s="<<s<<" current "<<printsignature(samples.bins[index].flows[s].flow)<<" len "<<samples.bins[index].flows[s].len<<" line "<<saveline<<" is attack "<<is_attack[index]<<endl;
       // src, dst, sport, dport
       // Overload len so we can track frequency of contributions
       // Jelena - there was continue here
@@ -370,15 +377,27 @@ void addSample(int index, flow_p* f, int way)
 	  // Else increase contributions of this signature wrt symmetry
 	  samples.bins[index].flows[s].len += abs(f->oci);
 	  samples.bins[index].flows[s].oci += f->oci;
+	  // if (index == 12205)
+	  //cout<<"Added sample, now the len is "<<samples.bins[index].flows[s].len<<" we added "<<abs(f->oci)<<" line "<<saveline;
 	}
       else	
 	{
 	  // Boyer Moore to find signatures that cover the most flows
 	  if (empty(samples.bins[index].flows[s].flow))
-	    samples.bins[index].flows[s].flow = k;
+	    {
+	      // if (index == 12205)
+	      //cout<<"Added initial sample\n";
+	      samples.bins[index].flows[s].flow = k;
+	      samples.bins[index].flows[s].len = abs(f->oci);
+	      samples.bins[index].flows[s].oci = f->oci;
+	    }
 	  else
 	    {
+	      int olen = samples.bins[index].flows[s].len;
 	      samples.bins[index].flows[s].len -= abs(f->oci);
+	      int nlen = samples.bins[index].flows[s].len;
+	      //if (index == 12205)
+	      //	cout<<"Added sample, now the len is "<<samples.bins[index].flows[s].len<<" old len "<<olen<<" new len "<<nlen<<" we removed "<<abs(f->oci)<<" line "<<saveline;
 	      // Replace this signature if there's another one,
 	      // which covers more
 	      if (samples.bins[index].flows[s].len < 0)
@@ -389,7 +408,10 @@ void addSample(int index, flow_p* f, int way)
 		}
 	    }
 	}
-    }	
+      //if (index == 9800)
+      //cout<<"Add sample, now the len is "<<samples.bins[index].flows[s].len<<" and sig "<<printsignature(samples.bins[index].flows[s].flow)<<endl;
+      pthread_mutex_unlock(&samples_lock);
+    }
 } 
 
 
@@ -405,9 +427,10 @@ int match(flow_t flow, flow_t sig)
       return 0;
     }
   if ((flow.src == sig.src || sig.src == 0) &&
-      (flow.sport == sig.sport || sig.sport == 0) &&
+      (flow.sport == sig.sport || sig.sport == -1) &&
       (flow.dst == sig.dst || sig.dst == 0) &&
-      (flow.dport == sig.dport || sig.dport == 0))
+      (flow.dport == sig.dport || sig.dport == -1) &&
+      ((flow.flags & sig.flags) > 0 || sig.flags == 0))
     {
       return 1;
     }
@@ -424,29 +447,304 @@ int malformed(double timestamp)
   if (timestamp < firsttimeinfile-1 || (parms["file_interval"] > 0 && timestamp > firsttimeinfile +
 				      parms["file_interval"]))
     {
-      cout<<"Malformed "<<timestamp<<" first time "<<firsttimeinfile-1<<endl;
+      //cout<<"Malformed "<<timestamp<<" first time "<<firsttimeinfile-1<<endl;
       return 1;
     }
   return 0;
 }
 
+// Function to detect values higher than mean + parms[num_std] * stdev 
+double abnormal(int type, int index, cell* c)
+{
+  // Look up std and mean
+  double mean = stats[hist][avg][type][index];
+  double std = sqrt(stats[hist][ss][type][index]/
+		    (stats[hist][n][type][index]-1));
+  // Look up current value
+  int data;
+  if (type == vol)
+    data = c->databrick_p[index];
+  else
+    data = c->databrick_s[index];
+  // If we don't have enough samples return 0
+  if (stats[hist][n][type][index] <
+      parms["min_train"]*MIN_SAMPLES)
+    return 0;
 
+  // calculate cusum
+  double tmp = cusum[type][index] + data - mean - 3*std;
+  if (tmp < 0)
+    tmp = 0;
+  
+  double rto = tmp/(std+1);
 
-bool shouldFilter(int bucket, flow_t flow)
+  //if (index == 13207)
+  //cout<<curtime<<" Cusum for type "<<type<<" data "<<data<<" mean "<<mean<<" std "<<std<<" is "<<cusum[type][index]<<" rto "<<rto<<endl;
+  
+  if (rto > 0)
+    return rto;
+  else
+    return 0;
+  /* Volume larger than mean + num_std*stdev is abnormal 
+  if (data > mean + parms["num_std"]*std)
+    {
+      return 1;
+    }
+  else
+    {
+      return 0;
+    }
+  */
+}
+
+// Print alert into the alerts file
+void print_alert(int i, cell* c, int na)
+{
+  double diff = curtime - lasttime;
+  if (diff < 1)
+    diff = 1;
+  double avgv = stats[hist][avg][vol][i];
+  double stdv = sqrt(stats[hist][ss][vol][i]/(stats[hist][n][vol][i]-1));
+  double avgs = stats[hist][avg][sym][i];
+  double stds = sqrt(stats[hist][ss][sym][i]/(stats[hist][n][sym][i]-1));
+  long int rate = c->databrick_p[i] - avgv - parms["num_std"]*stdv;
+  long int roci = c->databrick_s[i] - avgs - parms["num_std"]*stds;
+  
+  // Write the start of the attack into alerts
+  ofstream out;
+  if (abs(roci) < parms["min_oci"])
+    return;
+  
+  pthread_mutex_lock(&cnt_lock);
+  
+  out.open("alerts.txt", std::ios_base::app);
+  out<<na<<" "<<i/BRICK_UNIT<<" "<<(long)curtime<<" ";
+  out<<"START "<<i<<" "<<abs(rate);
+  out<<" "<<abs(roci)<<" ";
+  out<<printsignature(signatures[i].sig)<<endl;
+  out.close();
+  
+  // Save evidence of attack
+  if (false) // Jelena put back
+    {
+      char filename[MAXLINE];
+      sprintf(filename, "%s/attack%d", sparms["evids"].c_str(), na);
+      out.open(filename, std::ios_base::app);
+      for (int j=0; j < signatures[i].nm; j++)
+	out<<signatures[i].matches[j];
+      out.close();
+    }
+  pthread_mutex_unlock(&cnt_lock);
+  
+  // Check if we should rotate file
+  ifstream in("alerts.txt", std::ifstream::ate | std::ifstream::binary);
+  if (in.tellg() > 10000000)
+    {
+      system("./rotate");
+    }
+}
+
+void alert_ready(cell* c, int bucket)
+{
+  double volf = c->wfilter_p[bucket];
+  double volb = c->databrick_p[bucket];
+  if (volb == 0)
+    volb = 1;
+  double avgs = stats[hist][avg][sym][bucket];
+  double stds = sqrt(stats[hist][ss][sym][bucket]/(stats[hist][n][sym][bucket]-1));
+  double symf = abs(c->wfilter_s[bucket]);
+  double symb = abs(c->databrick_s[bucket]) - (abs(avgs) + parms["num_std"]*abs(stds));
+  if (symb < 0)
+    symb = symf;
+  double data = abs(c->databrick_s[bucket]);
+  if (symb == 0)
+    symb = 1;
+  if (symf/symb >= parms["filter_thresh"]) // && abnormal(vol,bucket,c) && abnormal(sym,bucket,c))
+    {
+      pthread_mutex_lock(&cnt_lock);
+      int na = numattack++;
+      pthread_mutex_unlock(&cnt_lock);
+      cout<<curtime<<" event "<<na<<" Signature works for "<<bucket<<" wfilter "<<symf<<","<<volf<<" without "<<symb<<","<<volb<<" stored matches "<<signatures[bucket].nm<<printsignature(signatures[bucket].sig)<<endl;
+      print_alert(bucket, c, na);
+    }
+  else
+    {
+      //if (bucket == 9464)
+      cout<<curtime<<" matched enough for "<<bucket<<" but failed to filter enough, filtered "<<symf<<" out of "<<symb<<" abnormals "<<abnormal(vol,bucket,c)<<" and "<<abnormal(sym,bucket,c)<<" avgs "<<avgs<<" stds "<<stds<<" data "<<data<<endl;
+    }
+  is_attack[bucket] = false;
+  detection_time[bucket] = 0;
+  clearSamples(bucket);
+}
+
+void checkReady(int bucket, cell* c)
+{
+  if (signatures[bucket].nm < MM)
+    {
+      strcpy(signatures[bucket].matches[signatures[bucket].nm++], saveline);
+      if (signatures[bucket].nm == MM)
+	{
+	  alert_ready(c, bucket);
+	}
+    }
+}
+
+// Should we filter this flow?
+bool shouldFilter(int bucket, flow_t flow, cell* c)
 {
   if (!empty(signatures[bucket].sig) && match(flow,signatures[bucket].sig))
-    {
-      if (signatures[bucket].nm < MM)
-	strcpy(signatures[bucket].matches[signatures[bucket].nm++], saveline);
-      return true;
-    }
+    return true;
   else
     return false;
 }
+
 long votedtime = 0;
 int votes = 0;
-const int MINVOTES = 1; // usually at 5 but for Flowride we set it to 0
- 
+const int MINVOTES = 1; // usually at 5 but for Flowride we set it to 1
+
+void findBestSignature(double curtime, int i, cell* c)
+{
+  flow_t bestsig;
+  int oci = 0;
+  int maxoci = 0;
+  double avgs = stats[hist][avg][sym][i];
+  double stds = sqrt(stats[hist][ss][sym][i]/(stats[hist][n][sym][i]-1));
+  int totoci = abs(c->databrick_s[i]) - abs(avgs) -  parms["num_std"]*abs(stds); 
+  
+  // Go through candidate signatures
+  for (int s=1; s<NF; s++)
+    {
+      if (empty(samples.bins[i].flows[s].flow))
+	continue;
+
+      double candrate = abs((double)samples.bins[i].flows[s].oci);
+
+      if (!compliantsig(i, samples.bins[i].flows[s].flow))
+	{
+	  if (verbose)
+	    cout<<"non compliant SIG: "<<i<<" for slot "<<s<<" candidate "<<printsignature(samples.bins[i].flows[s].flow)<<" v="<<samples.bins[i].flows[s].len<<" o="<<samples.bins[i].flows[s].oci<<" toto="<<totoci<<" candrate "<<candrate<<" divided "<<candrate/totoci<<endl;
+	    continue;
+	}
+
+      // Print out each signature for debugging
+      if (verbose)
+	cout<<"SIG: "<<i<<" for slot "<<s<<" candidate "<<printsignature(samples.bins[i].flows[s].flow)<<" v="<<samples.bins[i].flows[s].len<<" o="<<samples.bins[i].flows[s].oci<<" toto="<<totoci<<" candrate "<<candrate<<" divided "<<candrate/totoci<<endl;
+      // Potential candidate
+      if (candrate/totoci > parms["filter_thresh"])
+	{
+	  // Is it a more specific signature?
+	  if (bettersig(samples.bins[i].flows[s].flow, bestsig))
+	    {
+	      if (verbose)
+		cout<<"SIG: changing to "<< printsignature(samples.bins[i].flows[s].flow)<<endl;
+	      bestsig = samples.bins[i].flows[s].flow;
+	      oci = candrate;
+	    }
+	}
+    }
+  if (verbose)
+    cout<<"SIG: "<<i<<" best sig "<<printsignature(bestsig)<<" Empty? "<<empty(bestsig)<<" oci "<<maxoci<<" out of "<<totoci<<endl;
+  // Remember the signature if it is not empty and can filter
+  // at least filter_thresh flows in the sample
+  if (!empty(bestsig))
+    {
+      if (verbose)
+	cout<<curtime<<" ISIG: "<<i<<" volume "<<c->databrick_p[i]<<" oci "<<c->databrick_s[i]<<" installed sig "<<printsignature(bestsig)<<endl;
+
+      // insert signature and reset all the stats
+      if (sim_filter)
+	{
+	  signatures[i].sig = bestsig;
+	  signatures[i].vol = 0;
+	  signatures[i].oci = 0;
+	  signatures[i].nm = 0;	  
+	}
+      
+      // Now remove abnormal measure and samples, we're done
+      // Leave some measure of abnormal so we don't go ahead and
+      // update statistics
+      //is_abnormal[i] = 1;
+      // Clear samples
+      clearSamples(i);
+      // Clear attack detection time
+      //detection_time[i] = 0;
+    }
+  // Did not find a good signature
+  // drop the attack signal and try again later
+  else
+    {
+      if (verbose)
+	cout << "AT: Did not find good signature for attack "<<
+	  " on bin "<<i<<" best sig "<<empty(bestsig)<<
+	  " coverage "<<(float)oci/totoci<<" thresh "<<
+	  parms["filter_thresh"]<<endl;
+      is_attack[i] = false;
+    }
+}
+
+void instant_detect(cell* c, double ltime, int i)
+{
+  double avgv = stats[hist][avg][vol][i];
+  double stdv = sqrt(stats[hist][ss][vol][i]/(stats[hist][n][vol][i]-1));
+  double avgs = stats[hist][avg][sym][i];
+  double stds = sqrt(stats[hist][ss][sym][i]/(stats[hist][n][sym][i]-1));
+  int volume = c->databrick_p[i];
+  int asym = c->databrick_s[i];
+  
+  if (!is_attack[i])
+    {
+      // If both volume and asymmetry are abnormal and training has completed
+      double a = abnormal(vol, i, c);
+      double b = abnormal(sym, i, c);
+      int volume = c->databrick_p[i];
+      int asym = c->databrick_s[i];
+
+      if (training_done && abnormal(vol, i, c) && abnormal(sym, i, c))
+	{
+	  double aavgs = abs(avgs);
+	  if (aavgs == 0)
+	    aavgs = 1;
+	  double d = abs(abs(asym) - abs(avgs) - parms["num_std"]*abs(stds))/aavgs;
+	  if (d > parms["max_oci"])
+	    d = parms["max_oci"];
+	  
+	  if (a >= parms["cusum_thresh"] && b >= parms["cusum_thresh"])
+	    is_abnormal[i] = int(parms["attack_high"]);
+	  else
+	    {
+	      is_abnormal[i] = a+b;
+	      if (is_abnormal[i] > int(parms["attack_high"]))
+		is_abnormal[i] = int(parms["attack_high"])/2;
+	    }
+	  /*			 
+	  // Increase abnormal score, but cap at attack_high
+	  if (is_abnormal[i] < int(parms["attack_high"]))
+	  is_abnormal[i] += int(d+1);
+	  if (is_abnormal[i] > int(parms["attack_high"]))
+	  is_abnormal[i] = int(parms["attack_high"]);
+	  */
+	  
+	  if (verbose)
+	    cout<<ltime<<" abnormal for "<<i<<" points "<<is_abnormal[i]<<" oci "<<c->databrick_s[i]<<" ranges " <<avgs<<"+-"<<stds<<", vol "<<c->databrick_p[i]<<" ranges " <<avgv<<"+-"<<stdv<<" over mean "<<d<<" a "<<a<<" b "<<b<<" cusum thresh " << parms["cusum_thresh"]<<endl;
+
+	  // If abnormal score is above attack_low
+	  // and oci is above MAX_OCI
+	  if (is_abnormal[i] >= int(parms["attack_low"])
+	      && !is_attack[i] && abs(c->databrick_s[i]) >= int(parms["max_oci"]))
+	    {
+	      // Signal attack detection 
+	      is_attack[i] = true;
+	      detection_time[i] = ltime;
+	      if (verbose)
+		cout<<"AT: Attack detected on "<<i<<" but not reported yet vol "<<c->databrick_p[i]<<" oci "<<c->databrick_s[i]<<" max oci "<<int(parms["max_oci"])<<endl;
+	      
+	      // Find the best signature
+	      findBestSignature(ltime, i, c);
+	    }
+	}
+    }
+}
+
 
 // Main function, which processes each flow
 void
@@ -459,11 +757,16 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
       cout<<"Malformed "<<start<<" end "<<end<<endl;
       return;
     }
+  if (flow.proto == ICMP)
+    {
+      flow.sport = -2;
+      flow.dport = -2;
+    }
   //cout<<"Flow from "<<flow.src<<":"<<flow.sport<<"->"<<flow.dst<<":"<<flow.dport<<endl;
   // Standardize time
   if (curtime == 0)
     curtime = end;
-  if (end > curtime)
+  if ((unsigned long)end > (unsigned long)curtime)
     {
       if (votes == 0)
 	votedtime = (int)end;
@@ -492,32 +795,27 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 
   if (sim_filter)
     {
-      for (int way = FOR; way <= LPORT; way++) // SERV is included in CLI
+      for (int way = LHOST; way <= LPRST; way++) // SERV is included in CLI
 	{
 	  // Find buckets on which to work
-	  if (way == FOR)
-	    {
-	      if (flow.dlocal)
-		{
-		  s_bucket = myhash(flow.src, 0, FOR);
-		  if (shouldFilter(s_bucket, flow))
-		    {
-		      is_filtered = true;
-		      c->wfilter_p[s_bucket] += len;
-		      c->wfilter_s[s_bucket] += oci;
-		    }
-		}
-	    }
-	  else if (way == LOC || way == LOCPREF)
+	  if (way == LHOST || way == LPREF || way >= LHSYN)
 	    {
 	      if (flow.dlocal)
 		{
 		  d_bucket = myhash(flow.dst, 0, way);
-		  if (shouldFilter(d_bucket, flow))
+		  if (shouldFilter(d_bucket, flow, c))
 		    {
 		      is_filtered = true;
 		      c->wfilter_p[d_bucket] += len;
 		      c->wfilter_s[d_bucket] += oci;
+		      checkReady(d_bucket,c);
+		      //if (d_bucket == 3493)
+		      //cout<<"Match filtering "<<printsignature(flow)<<" len "<<len<<" oci "<<oci<<" filtered "<<c->wfilter_p[d_bucket]<<" "<< c->wfilter_s[s_bucket]<<" start "<<start<<" end "<<end<<endl;
+		    }
+		  else
+		    {
+		      //if (d_bucket == 3493)
+		      //cout<<"Match not filtering "<<printsignature(flow)<<" start "<<start<<" end "<<end<<" score "<<is_abnormal[d_bucket]<<" oci "<<c->databrick_s[d_bucket]<<endl;
 		    }
 		}
 	    }
@@ -527,11 +825,12 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 		{
 		  // traffic from FPORT
 		  s_bucket = myhash(0, flow.sport, way);
-		  if (shouldFilter(s_bucket, flow))
+		  if (shouldFilter(s_bucket, flow, c))
 		    {
 		      is_filtered = true;
 		      c->wfilter_p[s_bucket] += len;
 		      c->wfilter_s[s_bucket] += oci;
+		      checkReady(s_bucket,c);
 		    }
 		}
 	    }
@@ -541,11 +840,31 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 		{
 		  // traffic to LPORT
 		  d_bucket = myhash(0, flow.dport, way);
-		  if (shouldFilter(d_bucket, flow))
+		  if (shouldFilter(d_bucket, flow, c))
 		    {
 		      is_filtered = true;
 		      c->wfilter_p[d_bucket] += len;
 		      c->wfilter_s[d_bucket] += oci;
+		      checkReady(d_bucket,c);
+		    }
+		}
+	    }
+	  else if (way == LHFPORT || way == LPFPORT || way == LHLPORT || way == LHFPORT)
+	    {
+	      if (flow.dlocal)
+		{
+		  short port;
+		  if (way == LHFPORT || way == LPFPORT)
+		    port = flow.sport;
+		  else
+		    port = flow.dport;
+		  d_bucket = myhash(flow.dst, port, way);
+		  if (shouldFilter(d_bucket, flow, c))
+		    {
+		      is_filtered = true;
+		      c->wfilter_p[d_bucket] += len;
+		      c->wfilter_s[d_bucket] += oci;
+		      checkReady(d_bucket,c);
 		    }
 		}
 	    }
@@ -557,117 +876,149 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
   //  return;
   //}
 
-  for (int way = FOR; way <= LPORT; way++) 
+  vector<int> d_buckets, s_buckets;
+  
+  for (int way = LHOST; way <= LPRST; way++) 
     {
       // Find buckets on which to work
-      if (way == FOR)
+      if (way == LHOST || way == LPREF || way == LHSYN || way == LPSYN || way == LHSYNACK || way == LPSYNACK || way == LHACK || way == LPACK || way == LHRST || way == LPRST)
 	{
 	  if (flow.dlocal)
 	    {
-	      // traffic to us from FOR
-	      s_bucket = myhash(flow.src, 0, FOR);
-	      c->databrick_p[s_bucket] += len;
-	      c->databrick_s[s_bucket] += oci;
-	      addSample(s_bucket, &fp, way);
-	    }
-	  if (flow.slocal)
-	    {
-	      // our traffic to FOR
-	      d_bucket = myhash(flow.dst, 0, FOR);
-	      c->databrick_p[d_bucket] -= len;
-	      c->databrick_s[d_bucket] -= oci;
-	    }
-	}
-      else if (way == LOC || way == LOCPREF)
-	{
-	  if (flow.dlocal)
-	    {
-	      // traffic to LOC
+	      // traffic to LHOST/LPREF
 	      d_bucket = myhash(flow.dst, 0, way);
+	      if (way == LHSYN  || way == LPSYN)
+		if (flow.flags != SYN || flow.proto != TCP)
+		  continue;
+	      if (way == LHSYNACK  || way == LPSYNACK)
+		if (flow.flags != SYNACK || flow.proto != TCP)
+		  continue;
+	      if (way == LHACK  || way == LPACK)
+		if (flow.flags != ACK || flow.proto != TCP)
+		  continue;
+	      if (way == LHRST  || way == LPRST)
+		if (flow.flags != RST || flow.proto != TCP)
+		  continue;
 	      c->databrick_p[d_bucket] += len;
 	      c->databrick_s[d_bucket] += oci;
 	      addSample(d_bucket, &fp, way);
-	      //cout<<"Way "<<way<<" bucket "<<d_bucket<<" len "<<c->databrick_p[d_bucket]<<" oci "<<c->databrick_s[d_bucket]<<endl;
+	      instant_detect(c, curtime, d_bucket);
 	    }
 	  if (flow.slocal)
 	    {
-	      // traffic from LOC
+	      // traffic from LHOST/LPREF
 	      s_bucket = myhash(flow.src, 0, way);
+	      if (way == LHSYN || way == LPSYN)
+		if ((flow.flags != SYNACK && flow.flags != ACK && flow.flags != RST) || flow.proto != TCP)
+		  continue;
+	      if (way == LHSYNACK || way == LPSYNACK)
+		if (flow.flags != SYN || flow.proto != TCP)
+		  continue;
+	      if (way == LHACK || way == LPACK)
+		if ((flow.flags != PUSH && flow.flags != PUSHACK) || flow.proto != TCP)
+		  continue;
+	      if (way == LHRST || way == LPRST)
+		if (flow.flags != SYN || flow.proto != TCP)
+		  continue;
 	      c->databrick_p[s_bucket] -= len;
 	      c->databrick_s[s_bucket] -= oci;
+	      instant_detect(c, curtime, s_bucket);
 	    }	      
 	}
       else if (way == FPORT)
 	{
-	  if (flow.dlocal)
+	  if (flow.dlocal && isservice(flow.sport))
 	    {
 	      // traffic from FPORT
 	      s_bucket = myhash(0, flow.sport, way);
+	      //if (flow.dst == 732944783 && flow.sport == 53)
+	      //cout<<"FPORT "<<s_bucket<<endl;
 	      c->databrick_p[s_bucket] += len;
 	      c->databrick_s[s_bucket] += oci;
 	      addSample(s_bucket, &fp, way);
+	      instant_detect(c, curtime, s_bucket);
 	    }
-	  if (flow.slocal)
+	  if (flow.slocal && isservice(flow.dport))
 	    {
 	      // traffic to FPORT
 	      d_bucket = myhash(0, flow.dport, way);
 	      c->databrick_p[d_bucket] -= len;
-	      c->databrick_s[d_bucket] -= oci;	      
+	      c->databrick_s[d_bucket] -= oci;
+	      instant_detect(c, curtime, d_bucket);
 	    }
 	}
       else if (way == LPORT)
 	{
-	  if (flow.dlocal)
+	  if (flow.dlocal && isservice(flow.dport))
 	    {
 	      // traffic to LPORT
 	      d_bucket = myhash(0, flow.dport, way);
-	      //if (d_bucket == 2927)
-	      //cout<<" adding oci "<<oci<<" to databrick value "<<c->databrick_s[d_bucket]<<" c is "<<c<<" d port "<<flow.dport<<" dst "<<flow.dst<<endl;
+	      //if (flow.dst == 732944783 && flow.dport == 53)
+	      //cout<<"LPORT "<<d_bucket<<endl;
 	      c->databrick_p[d_bucket] += len;
 	      c->databrick_s[d_bucket] += oci;
 	      addSample(d_bucket, &fp, way);
+	      instant_detect(c, curtime, d_bucket);
 	    }
-	  if (flow.slocal)
+	  if (flow.slocal && isservice(flow.sport))
 	    {
 	      // traffic from LPORT
 	      s_bucket = myhash(0, flow.sport, way);
-	      //if (s_bucket == 2927)
-	      //cout<<" subtracting oci "<<oci<<" to databrick value "<<c->databrick_s[s_bucket]<<" c is "<<c<<" sport "<<flow.sport<<" src " <<flow.src<<endl;
 	      c->databrick_p[s_bucket] -= len;
 	      c->databrick_s[s_bucket] -= oci;
+	      instant_detect(c, curtime, s_bucket);
+	    }
+	}
+      else if (way == LHFPORT || way == LPFPORT)
+	{
+	  if (flow.dlocal && isservice(flow.sport))
+	    {
+	      // traffic from FPORT
+	      s_bucket = myhash(flow.dst, flow.sport, way);
+	      //if (flow.dst == 732944783 && flow.sport == 53)
+	      //cout<<"LHFPORT "<<s_bucket<<endl;
+
+	      c->databrick_p[s_bucket] += len;
+	      c->databrick_s[s_bucket] += oci;
+	      addSample(s_bucket, &fp, way);
+	      instant_detect(c, curtime, s_bucket);
+	    }
+	  if (flow.slocal && isservice(flow.dport))
+	    {
+	      // traffic to FPORT
+	      d_bucket = myhash(flow.src, flow.dport, way);
+	      //if (d_bucket == 13207)
+	      //cout<<d_bucket<<" Now is "<< c->databrick_s[d_bucket]<<endl;
+	      c->databrick_p[d_bucket] -= len;
+	      c->databrick_s[d_bucket] -= oci;
+	      instant_detect(c, curtime, d_bucket);
+	    }
+	}
+      else if (way == LHLPORT || way == LPLPORT)
+	{
+	  if (flow.dlocal && isservice(flow.dport))
+	    {
+	      // traffic to LPORT
+	      d_bucket = myhash(flow.dst, flow.dport, way);
+	      //if (flow.dst == 732944783 && flow.dport == 53)
+	      //cout<<"LHLPORT "<<d_bucket<<endl;
+	      c->databrick_p[d_bucket] += len;
+	      c->databrick_s[d_bucket] += oci;
+	      addSample(d_bucket, &fp, way);
+	      instant_detect(c, curtime, d_bucket);
+	    }
+	  if (flow.slocal && isservice(flow.sport))
+	    {
+	      // traffic from LPORT
+	      s_bucket = myhash(flow.src, flow.sport, way);
+	      c->databrick_p[s_bucket] -= len;
+	      c->databrick_s[s_bucket] -= oci;
+	      instant_detect(c, curtime, s_bucket);
 	    }
 	}
     }
 }
 
-// Function to detect values higher than mean + parms[numstd] * stdev 
-int abnormal(int type, int index, cell* c)
-{
-  // Look up std and mean
-  double mean = stats[hist][avg][type][index];
-  double std = sqrt(stats[hist][ss][type][index]/
-		    (stats[hist][n][type][index]-1));
-  // Look up current value
-  int data;
-  if (type == vol)
-    data = c->databrick_p[index];
-  else
-    data = c->databrick_s[index];
-  // If we don't have enough samples return 0
-  if (stats[hist][n][type][index] <
-      parms["min_train"]*MIN_SAMPLES)
-    return 0;
-
-  // Volume larger than mean + numstd*stdev is abnormal 
-  if (data > mean + parms["numstd"]*std)
-    {
-      return 1;
-    }
-  else
-    {
-      return 0;
-    }
-}
 
 // Update statistics
 void update_stats(cell* c)
@@ -681,6 +1032,7 @@ void update_stats(cell* c)
 	    data = c->databrick_p[i];
 	  else
 	    data = c->databrick_s[i];
+
 	  // Only update if everything looks normal 
 	  if (!is_abnormal[i])
 	    {
@@ -700,12 +1052,10 @@ void update_stats(cell* c)
 		    (data-ao)*(data - stats[cur][avg][j][i]);
 		}
 	    }
-	  //if (i == 2927)
-	  // cout<<" i "<<i<<" j "<<j<<" cur avg "<<stats[cur][avg][j][i]<<" ss "<<stats[cur][ss][j][i]<<" n "<<stats[cur][n][j][i]<<" data "<<data<<" cell "<<c<<endl;
 	}      
     }
   trained = (lasttime - firsttime);
-  //cout<<"Trained "<<trained<<" lasttime "<<lasttime<<" firsttime "<<firsttime<<endl; // Jelena
+
   if (trained >= parms["min_train"])
     {
       if (!training_done)
@@ -713,7 +1063,7 @@ void update_stats(cell* c)
 	  cout<<"Training has completed\n";
 	  training_done = true;
 	}
-      trained = curtime;
+      firsttime = curtime;
      
       for (int x = ss; x >= n; x--)
 	for (int j = vol; j <= sym; j++)
@@ -723,140 +1073,20 @@ void update_stats(cell* c)
 	    // If the attack was long maybe we don't
 	    if (stats[cur][n][j][i] <
 		parms["min_train"]*MIN_SAMPLES)
-	      {
-		continue;
-	      }
-	    stats[hist][x][j][i] = stats[cur][x][j][i];
+	      continue;
+
+	    if (stats[cur][x][j][i] == 0)
+	      stats[hist][x][j][i] = 0.5*stats[hist][x][j][i] + 0.5*stats[cur][x][j][i];
+	    else
+	      stats[hist][x][j][i] = stats[cur][x][j][i];
 	    stats[cur][x][j][i] = 0;
-	    //if (i == 2927)
-	    //cout<<" i "<<i<<" j "<<j<<" hist avg "<<stats[hist][avg][j][i]<<" ss "<<stats[hist][ss][j][i]<<" n "<<stats[hist][n][j][i]<<endl;
 	  }
     }
 }
 
-void print_alert(int i, cell* c, int na)
-{
-  double diff = curtime - lasttime;
-  if (diff < 1)
-    diff = 1;
-  double avgv = stats[hist][avg][vol][i];
-  double stdv = sqrt(stats[hist][ss][vol][i]/(stats[hist][n][vol][i]-1));
-  double avgs = stats[hist][avg][sym][i];
-  double stds = sqrt(stats[hist][ss][sym][i]/(stats[hist][n][sym][i]-1));
-  long int rate = c->databrick_p[i]/diff - avgv - parms["num_std"]*stdv;
-  long int roci = c->databrick_s[i]/diff - avgs - parms["num_std"]*stds;
-  
-  // Write the start of the attack into alerts
-  ofstream out;
-  if (roci < parms["min_oci"])
-    return;
-  
-  pthread_mutex_lock(&cnt_lock);
-  
-  out.open("alerts.txt", std::ios_base::app);
-  out<<na<<" "<<i/BRICK_UNIT<<" "<<(long)curtime<<" ";
-  out<<"START "<<i<<" "<<rate;
-  out<<" "<<roci<<" ";
-  out<<printsignature(signatures[i].sig)<<endl;
-  out.close();
-  
-  // Save evidence of attack
-  char filename[MAXLINE];
-  sprintf(filename, "/mnt/senss/evidence/attack%d", na);
-  out.open(filename, std::ios_base::app);
-  for (int j=0; j < signatures[i].nm; j++)
-    out<<signatures[i].matches[j];
-  out.close();
-  pthread_mutex_unlock(&cnt_lock);
-  
-  // Check if we should rotate file
-  ifstream in("alerts.txt", std::ifstream::ate | std::ifstream::binary);
-  if (in.tellg() > 10000000)
-    {
-      system("./rotate");
-    }
-}
-
-void findBestSignature(double curtime, int i, cell* c)
-{
-  flow_t bestsig;
-  int oci = 0;
-  int maxoci = 0;
-  int totoci = c->databrick_s[i]; //here we may want to subtract mean + 3*std
-  
-  // Go through candidate signatures
-  for (int s=1; s<NF; s++)
-    {
-      if (empty(samples.bins[i].flows[s].flow))
-	continue;
-
-      double candrate = (double)samples.bins[i].flows[s].oci;
-
-      if (!compliantsig(i, samples.bins[i].flows[s].flow))
-	{
-	  if (verbose)
-	    cout<<"non compliant SIG: "<<i<<" for slot "<<i/BRICK_UNIT<<" candidate "<<printsignature(samples.bins[i].flows[s].flow)<<" v="<<samples.bins[i].flows[s].len<<" o="<<samples.bins[i].flows[s].oci<<" toto="<<totoci<<" candrate "<<candrate<<" divided "<<candrate/totoci<<endl;
-	    continue;
-	}
-
-      // Print out each signature for debugging
-      if (verbose)
-	cout<<"SIG: "<<i<<" candidate "<<printsignature(samples.bins[i].flows[s].flow)<<" v="<<samples.bins[i].flows[s].len<<" o="<<samples.bins[i].flows[s].oci<<" toto="<<totoci<<" candrate "<<candrate<<" divided "<<candrate/totoci<<endl;
-      // Potential candidate
-      if (candrate/totoci > parms["filter_thresh"])
-	{
-	  // Is it a more specific signature?
-	  if (bettersig(samples.bins[i].flows[s].flow, bestsig))
-	    {
-	      if (verbose)
-		cout<<"SIG: changing to "<< printsignature(samples.bins[i].flows[s].flow)<<endl;
-	      bestsig = samples.bins[i].flows[s].flow;
-	      oci = candrate;
-	    }
-	}
-    }
-  if (verbose)
-    cout<<"SIG: "<<i<<" best sig "<<printsignature(bestsig)<<" Empty? "<<empty(bestsig)<<" oci "<<maxoci<<" out of "<<totoci<<endl;
-  broad_allowed[i]++;
-  // Remember the signature if it is not empty and can filter
-  // at least filter_thresh flows in the sample
-  if (!empty(bestsig))
-    {
-      if (verbose)
-	cout<<curtime<<" ISIG: "<<i<<" volume "<<c->databrick_p[i]<<" oci "<<c->databrick_s[i]<<" installed sig "<<printsignature(bestsig)<<endl;
-
-      // insert signature and reset all the stats
-      if (sim_filter)
-	{
-	  signatures[i].sig = bestsig;
-	  signatures[i].vol = 0;
-	  signatures[i].oci = 0;
-	  signatures[i].nm = 0;	  
-	}
-      
-      // Now remove abnormal measure and samples, we're done
-      is_abnormal[i] = 0;
-      // Clear samples
-      clearSamples(i);
-      // Clear broad_allowed if we did get a broad sig
-      if (broad_allowed[i] >= 16)
-	broad_allowed[i] = 0;
-    }
-  // Did not find a good signature
-  // drop the attack signal and try again later
-  else
-    {
-      if (verbose)
-	cout << "AT: Did not find good signature for attack "<<
-	  " on bin "<<i<<" best sig "<<empty(bestsig)<<
-	  " coverage "<<(float)oci/totoci<<" thresh "<<
-	  parms["filter_thresh"]<<endl;
-      is_attack[i] = false;
-    }
-}
 
 // This function detects an attack
-void detect_attack(cell* c)
+void detect_attack(cell* c, double ltime)
 {
   // For each bin
   for (int i=0;i<BRICK_DIMENSION;i++)
@@ -868,20 +1098,39 @@ void detect_attack(cell* c)
       double stds = sqrt(stats[hist][ss][sym][i]/(stats[hist][n][sym][i]-1));
       int volume = c->databrick_p[i];
       int asym = c->databrick_s[i];
+
+      // Update cusum
+      for (int type = 0; type <= 1; type++)
+	{
+	  int data = volume;
+	  double mean = avgv;
+	  double std = stdv;
+	  if (type == 1)
+	    {
+	      data = asym;
+	      mean = avgs;
+	      std = stds;
+	    }
+	  double tmp = cusum[type][i] + data - mean - 3*std;
+	  if (tmp > 0)    
+	    cusum[type][i] = tmp;
+	  else
+	    cusum[type][i] = 0;
+	}
       
-      if (verbose)
+      if (verbose & 0) // Block it temporarily
 	{
 	  ofstream out;
 	  char filename[200];
-	  sprintf(filename, "/mnt/senss/logs/bin%d.txt", i);
+	  sprintf(filename, "%s/bin%d.txt", sparms["logs"].c_str(), i);
 	  out.open(filename, std::ios_base::app);
-	  out<<(long)curtime<<"  "<<avgv<<" "<<stdv<<" "<<volume<<" "<<avgs<<" "<<stds<<" "<<asym<<" "<<is_abnormal[i]<<endl;
+	  out<<pthread_self()<<" "<<(long)ltime<<"  "<<avgv<<" "<<stdv<<" "<<volume<<" "<<avgs<<" "<<stds<<" "<<asym<<" "<<is_attack[i]<<" "<<is_abnormal[i]<<endl;
 	  out.close();
 	  if (lastlogtime == 0)
-	    lastlogtime = curtime;
-	  if (curtime - lastlogtime >= DAY)
+	    lastlogtime = ltime;
+	  if (ltime - lastlogtime >= DAY)
 	    {
-	      system("./mvlogs");
+	      //system("./mvlogs");
 	      lastlogtime = curtime;
 	    }
 	}
@@ -890,81 +1139,41 @@ void detect_attack(cell* c)
 	  // Check if we have collected enough matches
 	  if (signatures[i].nm == MM)
 	    {
-	      double volf = c->wfilter_p[i];
-	      double volb = c->databrick_p[i];
-	      if (volb == 0)
-		volb = 1;
-	      double symf = c->wfilter_s[i];
-	      double symb = c->databrick_s[i];
-	      if (symb == 0)
-		symb = 1;
-	      if (symf/symb >= parms["filter_thresh"] && abnormal(vol,i,c) && abnormal(sym,i,c))
+	      alert_ready(c, i);
+	    }
+	  else
+	    {
+	      double diff = ltime - detection_time[i];
+	      if (diff >= ADELAY)
 		{
-		  pthread_mutex_lock(&cnt_lock);
-		  int na = numattack++;
-		  pthread_mutex_unlock(&cnt_lock);
-		  cout<<curtime<<" event "<<na<<" Signature works for "<<i<<" wfilter "<<symf<<","<<volf<<" without "<<symb<<","<<volb<<" stored matches "<<signatures[i].nm<<endl;
-		  print_alert(i, c, na);
+		  cout<<ltime<<" not matched enough for "<<i<<endl;
+		  is_attack[i] = false;
+		  detection_time[i] = 0;
+		  clearSamples(i);
 		}
-	      is_attack[i] = false;
 	    }
 	}
       else if (!is_attack[i])
 	{
-	  // If both volume and asymmetry are abnormal and training has completed
-	  int a = abnormal(vol, i, c);
-	  int b = abnormal(sym, i, c);
-	  int volume = c->databrick_p[i];
-	  int asym = c->databrick_s[i];
-	  if (training_done && abnormal(vol, i, c) && abnormal(sym, i, c))
-	    {
-	      double aavgs = abs(avgs);
-	      if (aavgs == 0)
-		aavgs = 1;
-	      double d = abs(abs(asym) - abs(avgs) - parms["numstd"]*abs(stds))/aavgs;
-	      if (d > parms["max_oci"])
-		d = parms["max_oci"];
-	      if (verbose)
-		cout<<curtime<<" abnormal for "<<i<<" points "<<is_abnormal[i]<<" oci "<<c->databrick_s[i]<<" ranges " <<avgs<<"+-"<<stds<<", vol "<<c->databrick_p[i]<<" ranges " <<avgv<<"+-"<<stdv<<" over mean "<<d<<endl;
-	      
-	      // Increase abnormal score, but cap at attack_high
-	      if (is_abnormal[i] < int(parms["attack_high"]))
-		is_abnormal[i] += int(d+1);
-	      if (is_abnormal[i] > int(parms["attack_high"]))
-		is_abnormal[i] = int(parms["attack_high"]);
-	      
-	      // If abnormal score is above attack_low
-	      // and oci is above MAX_OCI
-	      if (is_abnormal[i] >= int(parms["attack_low"])
-		  && !is_attack[i] && abs(c->databrick_s[i]) >= int(parms["max_oci"]))
-		{
-		  // Signal attack detection 
-		  is_attack[i] = true;
-		  if (verbose)
-		    cout<<"AT: Attack detected on "<<i<<" but not reported yet vol "<<c->databrick_p[i]<<" oci "<<c->databrick_s[i]<<" max oci "<<int(parms["max_oci"])<<endl;
-		  
-		  // Find the best signature
-		  findBestSignature(curtime, i, c);
-		}
-	    }
 	  // Training is completed and both volume and symmetry are normal
-	  else if (training_done && !abnormal(vol, i, c) && !abnormal(sym, i, c))
+	  if (training_done && !abnormal(vol, i, c) && !abnormal(sym, i, c))
 	    {
-	      // if (verbose)
-	      //cout<<curtime<<" is normal for "<<i<<" points "<<is_abnormal[i]<<" oci "<<c->databrick_s[i]<<" ranges " <<avgs<<"+-"<<stds<<", vol "<<c->databrick_p[i]<<" ranges " <<avgv<<"+-"<<stdv<<endl;
 	      // Reduce abnormal score
 	      if (is_abnormal[i] > 0)
 		{
 		  is_abnormal[i] --;
 		}
+	      if (is_abnormal[i] == 0)
+		clearSamples(i);
 	    }
 	}
     }
 }
 
+	
 // Read pcap packet format
 void
-amonProcessingPcap (pcap_pkthdr* hdr, u_char* p, double time)
+amonProcessingPcap(u_char* p, struct pcap_pkthdr *h,  double time) // (pcap_pkthdr* hdr, u_char* p, double time)
 {
   // Start and end time of a flow are just pkt time
   double start = time;
@@ -1025,6 +1234,8 @@ amonProcessingFlowride(char* line, double start)
   strncpy(rend, line+delimiters[18]+10,9);
   rend[9] = 0;
   double end = (double)atoi(send) + (double)atoi(rend)/1000000000;
+  if (end > curtime)
+    curtime = end;
   double dur = end - start;
   // Normalize duration
   if (dur < 1)
@@ -1060,6 +1271,7 @@ amonProcessingFlowride(char* line, double start)
   pktsdir = atoi(line+delimiters[14]);
   pktsrev = atoi(line+delimiters[15]);
   // Closed flow, no need to do anything
+
   if (pktsdir == 0 && pktsrev == 0)
     return;
   processedbytes+=pbytes;
@@ -1155,8 +1367,7 @@ amonProcessingFlowride(char* line, double start)
 }
 
 // Read nfdump flow format
-void
-amonProcessingNfdump (char* line, double time)
+void amonProcessingNfdump (char* line, double time)
 {
   /* 2|1453485557|768|1453485557|768|6|0|0|0|2379511808|44694|0|0|0|2792759296|995|0|0|0|0|2|0|1|40 */
   // Get start and end time of a flow
@@ -1183,6 +1394,8 @@ amonProcessingNfdump (char* line, double time)
   flow.dst = strtol(line+delimiters[13], &tokene, 10);
   flow.dport = atoi(line+delimiters[14]); 
   flow.proto = proto;
+  int flags = atoi(line+delimiters[19]);
+  flow.flags = flags;
   flow.slocal = islocal(flow.src);
   flow.dlocal = islocal(flow.dst);
   bytes = atoi(line+delimiters[22]);
@@ -1195,11 +1408,35 @@ amonProcessingNfdump (char* line, double time)
       return;
     }
   l++;
-  int flags = atoi(line+delimiters[19]);
+
   pkts = atoi(line+delimiters[21]);
+
+  // This is where sampling would be handled
+  int minpkts, minbytes;
+  
+  // Hack for FRGP
+  if (pkts % 100 == 0)
+    {
+      minpkts = 100;
+      minbytes = bytes/(pkts/100);
+    }
+  else
+    {
+      minpkts = 4096;
+      minbytes = bytes/(pkts/4096+1);
+    }
+  
   pkts = (int)(pkts/(dur+1))+1;
   bytes = (int)(bytes/(dur+1))+1;
 
+  if (pkts < minpkts)
+    {
+      pkts = minpkts;
+      bytes = minbytes;
+    }
+  // End of hack for FRGP
+  
+  //cout<<std::fixed<<"Jelena "<<start<<" "<<end<<" "<<pkts<<" "<<bytes<<endl;
   /* Is this outstanding connection? For TCP, connections without 
      PUSH are outstanding. For UDP, connections that have a request
      but not a reply are outstanding. Because bidirectional flows
@@ -1210,28 +1447,31 @@ amonProcessingNfdump (char* line, double time)
   int oci;
   if (proto == TCP)
     {
-      // There is a PUSH flag
-      if ((flags & 8) > 0)
+      // There is a PUSH flag or just ACK
+      if ((flags & 8) > 0 || (flags == 16))
 	oci = 0;
       else
-	oci = 1;
+	oci = pkts;
     }
-  else if (proto == UDP)
+  else if (proto == UDP || proto == ICMP)
     {
       oci = pkts;
     }
   else
-    // unknown proto
-    oci = pkts;
+    return;
   
+  if (oci == 0)
+    return;
+
   amonProcessing(flow, bytes, start, end, oci); 
 }
 
 
 
 // Ever so often go through flows and process what is ready
-void *reset_transmit (void* passed_parms)
+void *reset_transmit (void* lt)
 {
+  double ltime = *((double*) lt);
   // Make sure to note that you're running
   pthread_mutex_lock (&rst_lock);
   resetrunning = true;
@@ -1239,8 +1479,7 @@ void *reset_transmit (void* passed_parms)
   
   // Serialize access to cells
   pthread_mutex_lock (&cells_lock);
-  cout<<"RS locked\n";
-
+  
   lasttime = curtime;
   // We will process this one now
   int current = cfront;
@@ -1261,8 +1500,9 @@ void *reset_transmit (void* passed_parms)
   // a long time to be reported. Perhaps we had too specific
   // signature and we will never collect enough matches
   // Serialize access to stats
+
   if (training_done)
-    detect_attack(c);
+    detect_attack(c, ltime);
   update_stats(c);
 
   std::cout.precision(5);
@@ -1272,7 +1512,7 @@ void *reset_transmit (void* passed_parms)
   resetrunning = false;
   pthread_mutex_unlock (&rst_lock);
   
-    // Detect attack here
+  // Detect attack here
   pthread_exit (NULL);
 }
 
@@ -1284,16 +1524,18 @@ void save_history()
     {
       ofstream out;
       out.open("as.dump", std::ios_base::out);
-      for (int i=n; i<=ss;i++)
-	for (int j=vol; j<=sym; j++)
-	  {
-	    out<<i<<" "<<j<<" ";
-	    for (int k=0;k<BRICK_DIMENSION;k++)
-	      {
-		out<<stats[hist][i][j][k]<<" ";
-	      }
-	    out<<endl;
-	  }
+      out<<numattack<<endl;
+      for (int t=cur; t<=hist; t++)
+	{
+	  for (int i=0;i<BRICK_DIMENSION;i++)
+	    {
+	      for (int j=vol; j<=sym; j++)
+		{
+		  out<<t<<" "<<i<<" "<<j<<" ";
+		  out<<stats[t][n][j][i]<<" "<<stats[t][avg][j][i]<<" "<<stats[t][ss][j][i]<<endl;
+		}
+	    }
+	}
       out.close();
     }
 }
@@ -1306,28 +1548,21 @@ void load_history()
   in.open("as.dump", std::ios_base::in);
   if (in.is_open())
     {
-      int malformed = 0;
-      for (int i=n; i<=ss;i++)
-	for (int j=vol; j<=sym; j++)
-	  {
-	    int a, b;
-	    in>>a>>b;
-	    if (a != i || b !=j)
-	      {
-		malformed = 1;
-		break;
-	      }
-	    for (int k=0;k<BRICK_DIMENSION;k++)
-	      {
-		in>>stats[hist][i][j][k];
-	      }
-	  }
+      in>>numattack;
+      for (int t=cur; t<=hist; t++)
+        {
+          for (int i=0;i<BRICK_DIMENSION;i++)
+            {
+              for (int j=vol; j<=sym; j++)
+                {
+                  in>>t>>i>>j;
+                  in>>stats[t][n][j][i]>>stats[t][avg][j][i]>>stats[t][ss][j][i];
+                }
+            }
+        }
       in.close();
-      if (!malformed)
-	{
-	  training_done = true;
-	  cout<<"Training data loaded"<<endl;
-	}
+      training_done = true;
+      cout<<"Training data loaded"<<endl;
     }  
 }
 
@@ -1337,17 +1572,24 @@ printHelp (void)
 {
   printf ("amon-senss\n(C) 2018 University of Southern California.\n\n");
 
-    printf ("-h                             Print this help\n");
-    printf ("-S                             Streaming input in Flowride format\n");
-  printf ("-r <inputfile or inputfolder>  Input is in given file or folder, supports and self-detects nfdump, flow-tools, pcap and flowride formats\n");
+  printf ("-h                             Print this help\n");
+  printf ("-S                             Streaming input from stdin\n");
+  printf ("-r <file|folder|iface>         Input is in given file or folder, or live on the specified iface\n");
   printf ("-l                             Load historical data from as.dump\n");
-  printf ("-s                             Start from this given file in the input folder\n");
-  printf ("-e                             End with this given file in the input folder\n");
-  printf ("-f                             Simulate filtering, because we're working with traces\n");
+  printf ("-F <pcap|plive|ft|nf|fr>       Input is in this format\n");
+  printf ("\t pcap - libpcap format in a file\n");
+  printf ("\t plive - libpcap live read from interface\n");
+  printf ("\t ft - flowtools format in a file\n");
+  printf ("\t nf - netflow format in a file\n");
+  printf ("\t fr - Flowride format in a file\n");
+  printf ("-s <file>                      Start from this given file in the input folder\n");
+  printf ("-e <file>                      End with this given file in the input folder\n");
+  printf ("-f                             Simulate filtering, without this we don't print alerts\n");
   printf ("-v                             Verbose\n");
 }
 
 
+/*
 // File or stream processing function
 void processLine(std::function<void(char*, double)> func, int num_pkts, char* line, double epoch, double& start)
 {  
@@ -1365,7 +1607,7 @@ void processLine(std::function<void(char*, double)> func, int num_pkts, char* li
   if (allflows % 1000000 == 0)
     {
       double diff = time(0) - start;
-      cout<<"Processed "<<allflows<<", 1M in "<<diff<<" curtime "<<curtime<<" last "<<lasttime<<endl;
+      cout<<"Processed "<<allflows<<", 1M in "<<diff<<" curtime "<<curtime<<" last "<<lasttime<<" epoch "<<epoch<<endl;
       start = time(0);
     }
   // Each second
@@ -1373,7 +1615,7 @@ void processLine(std::function<void(char*, double)> func, int num_pkts, char* li
   if (curtime - lasttime >= 1) 
     {
       pthread_mutex_lock (&cells_lock);
-      cout<<std::fixed<<"Done "<<time(0)<<" curtime "<<curtime<<" flows "<<processedflows<<endl;
+      cout<<std::fixed<<"Done "<<time(0)<<" curtime "<<curtime<<" lasttime "<<lasttime<<" flows "<<processedflows<<" lastbintime "<<lastbintime<<endl;
       // This one we will work on next
       crear = (crear + 1)%QSIZE;
       if (crear == cfront && !cempty)
@@ -1411,26 +1653,151 @@ void processLine(std::function<void(char*, double)> func, int num_pkts, char* li
     }
   func(line, start);
 }
+*/
+
+// Define the function to be called when ctrl-c (SIGINT) is sent to process
+void signal_callback_handler(int signum) {
+   cout << "Caught signal " << signum << endl;
+   // Terminate program
+   save_history();
+   exit(signum);
+}
+
+// Read one line from file according to format
+double read_one_line(void* nf, char* format, char* line, u_char* p,  struct pcap_pkthdr *h)
+{
+  if (!strcmp(format, "nf") || !strcmp(format, "ft") || !strcmp(format,"fr"))
+    {
+      char* s = fgets(line, MAXLINE, (FILE*) nf);
+      if (s == NULL)
+	return -1;
+
+      char tmpline[MAXLINE];
+      strcpy(tmpline, line);
+      if (!strcmp(format, "nf") || !strcmp(format, "ft"))
+	{
+	  if (strstr(tmpline, "|") == NULL)
+	    return 0;
+	  int dl = parse(tmpline,'|', &delimiters);
+	  double epoch = strtol(tmpline+delimiters[0],NULL,10);
+	  int msec = atoi(tmpline+delimiters[1]);
+	  epoch = epoch + msec/1000.0;
+	  return epoch;
+	}
+      else {
+	int dl = parse(tmpline,'\t', &delimiters);
+	if (dl != 19)
+	  return 0;
+	
+	char sstart[MAXLINE], rstart[MAXLINE];
+	strncpy(sstart, tmpline+delimiters[18],10);
+	sstart[10] = 0;
+	strncpy(rstart, tmpline+delimiters[18]+10,9);
+	rstart[9] = 0;
+	double epoch = (double)atoi(sstart)+(double)atoi(rstart)/1000000000;
+	return epoch;
+      }
+    }
+  else if (!strcmp(format,"pcap") || !strcmp(format,"plive"))
+    {
+      int rc = pcap_next_ex((pcap_t*)nf, &h, (const u_char **) &p);
+      if (rc <= 0)
+	return 0;
+      struct ether_header* eth_header = (struct ether_header *) p;
+      
+      if (ntohs(eth_header->ether_type) != ETHERTYPE_IP) 
+	return 0;
+      double epoch = h->ts.tv_sec + h->ts.tv_usec/1000000.0;
+      return epoch;
+    }
+  //Jelena add more formats
+  return 0;
+}
+
+void process_one_line(char* line, void* nf, double epoch, char* format, u_char* p, struct pcap_pkthdr *h)
+{
+  if (!strcmp(format, "nf") || !strcmp(format, "ft"))
+    amonProcessingNfdump (line, epoch);
+  else if (!strcmp(format, "fr"))
+    amonProcessingFlowride (line, epoch);
+  else if (!strcmp(format, "pcap"))
+    amonProcessingPcap(p, h, epoch);
+  // add more formats
+}
+
+// Read from file according to format
+void read_from_file(void* nf, char* format)
+{
+  // -1 means EOF, 0 means line without a flow
+  char line[MAXLINE];
+  double epoch;
+  int num_pkts = 0;
+  double start = time(0);
+  u_char* p;
+  struct pcap_pkthdr *h;
+  while ((epoch = read_one_line(nf, format, line, p, h)) != -1)
+    {
+      if (epoch == 0)
+	continue;
+      if (firsttime == 0)
+	firsttime = epoch;
+      num_pkts++;
+      if (firsttimeinfile == 0)
+	firsttimeinfile = epoch;
+      allflows++;
+      if (allflows % 1000000 == 0)
+	{
+	  double diff = time(0) - start;
+	  cout<<"Processed "<<allflows<<", 1M in "<<diff<<endl;
+	  start = time(0);
+	}
+      processedflows++;
+      // Each second
+      if (curtime - lasttime >= 1) 
+	{
+	  pthread_mutex_lock (&cells_lock);
+	  lastbintime = curtime;
+	  //cout<<std::fixed<<"Done "<<time(0)<<" curtime "<<curtime<<" lasttime "<<lasttime<<" flows "<<processedflows<<endl;
+	  
+	  // This one we will work on next
+	  crear = (crear + 1)%QSIZE;
+	  if (crear == cfront && !cempty)
+	    {
+	      perror("QSIZE is too small\n");
+	      exit(1);
+	    }
+	  // zero out stats
+	  cell* c = &cells[crear];
+	  memset(c->databrick_p, 0, BRICK_DIMENSION*sizeof(long int));
+	  memset(c->databrick_s, 0, BRICK_DIMENSION*sizeof(long int));
+	  memset(c->wfilter_p, 0, BRICK_DIMENSION*sizeof(unsigned int));
+	  memset(c->wfilter_s, 0, BRICK_DIMENSION*sizeof(int));
+	  // and it will soon be full
+	  cempty = false;
+	  pthread_mutex_unlock (&cells_lock);
+	  
+	  pthread_t thread_id;
+	  pthread_create (&thread_id, NULL, reset_transmit, &lastbintime);
+	  pthread_detach(thread_id);
+	  processedflows = 0;
+	  lasttime = curtime;
+	}
+      process_one_line(line, nf, epoch, format, p, h);
+    }
+}
 
 // Main program
 int main (int argc, char *argv[])
 {  
   delimiters = (int*)malloc(AR_LEN*sizeof(int));
-  memset(is_attack, 0, BRICK_DIMENSION*sizeof(int));
-  memset(is_abnormal, 0, BRICK_DIMENSION*sizeof(int));
-  // Parse configuration
-  parse_config (parms);
-  // Load service port numbers
-  noorphan = (bool) parms["no_orphan"];
-  numservices = loadservices("services.txt");
-  loadprefixes("localprefs.txt");
   
   char c, buf[32];
   char *file_in = NULL;
   bool stream_in = false;
   char *startfile = NULL, *endfile = NULL;
+  char* format;
   
-  while ((c = getopt (argc, argv, "hvlr:s:e:fS")) != '?')
+  while ((c = getopt (argc, argv, "hvlr:s:e:F:fS")) != '?')
     {
       if ((c == 255) || (c == -1))
 	break;
@@ -1440,6 +1807,14 @@ int main (int argc, char *argv[])
 	case 'h':
 	  printHelp ();
 	  return (0);
+	  break;
+	case 'F':
+	  format = strdup(optarg);
+	  if (strcmp(format,"pcap") && strcmp(format,"plive") && strcmp(format,"ft") && strcmp(format,"nf") && strcmp(format,"fr"))
+	    {
+	      cerr<<"Unknown format "<<format<<endl;
+	      exit(1);
+	    }
 	  break;
 	case 'S':
 	  stream_in = true;
@@ -1473,8 +1848,18 @@ int main (int argc, char *argv[])
       exit(-1);
     }
   cout<<"Verbose "<<verbose<<endl;
+  numservices = loadservices("services.txt");
+  loadprefixes("localprefs.txt");
+  memset(is_attack, 0, BRICK_DIMENSION*sizeof(int));
+  memset(is_abnormal, 0, BRICK_DIMENSION*sizeof(int));
+  // Parse configuration
+  parse_config(parms, sparms);
+  // Load service port numbers
+  noorphan = (bool) parms["no_orphan"];
 
-  // Connect to DB
+  signal(SIGINT, signal_callback_handler);
+
+  /* Connect to DB
   try {
     driver = get_driver_instance();
     con = driver->connect("tcp://127.0.0.1:3306", "amon-senss", "St33llab@isi");
@@ -1483,7 +1868,7 @@ int main (int argc, char *argv[])
   catch (sql::SQLException &e) {
     cerr<<"Could not connect to the DB\n";
   }
-
+  */
 
   clock_gettime(CLOCK_MONOTONIC, &last_entry);      
   // This is going to be a pointer to input
@@ -1492,7 +1877,11 @@ int main (int argc, char *argv[])
   unsigned long long num_pkts = 0;      
 
   // Read flows from a file
-  if (file_in)
+  if (stream_in)
+    {
+      read_from_file(stdin, format);
+    }
+  else //if (file_in)
     {
       int isdir = 0;
       vector<string> tracefiles;
@@ -1535,7 +1924,7 @@ int main (int argc, char *argv[])
 	}
       inputs.clear();
 
-      tracefiles.push_back(file_in);
+      //tracefiles.push_back(file_in);
       
       std::sort(tracefiles.begin(), tracefiles.end(), sortbyFilename());
       for (vector<string>::iterator vit=tracefiles.begin(); vit != tracefiles.end(); vit++)
@@ -1548,6 +1937,7 @@ int main (int argc, char *argv[])
       double start = time(0);
       // Go through tracefiles and read each one
       // Jelena: should delete after reading
+      cout<<"Format is "<<format<<endl;
       for (vector<string>::iterator vit=tracefiles.begin(); vit != tracefiles.end(); vit++)
       {
 	const char* file = vit->c_str();
@@ -1558,348 +1948,44 @@ int main (int argc, char *argv[])
 	  }
 
 	started = 1;
-	
-	char cmd[MAXLINE];
-
-	// Try to read from an interface as pcap
-	sprintf(cmd,"tcpdump -i %s 2>/dev/null", file);
-	nf = popen(cmd, "r");
-	// Close immediately so we get the error code 
-	// and we can detect if this is not an interface
-	int error = pclose(nf);
-	if (error > 0)
-	  {
-	    // Try to read as pcap file
-	    sprintf(cmd,"tcpdump -r %s 2>/dev/null", file);
-	    nf = popen(cmd, "r");
-	    // Close immediately so we get the error code 
-	    // and we can detect if this is maybe netflow or flow-tools format 
-	    int error = pclose(nf);
-	    if (error > 0)
-	      {
-		// Try to read as netflow file
-		sprintf(cmd,"nfdump -r %s -o pipe 2>/dev/null", file);
-		nf = popen(cmd, "r");
-		// Close immediately so we get the error code 
-		// and we can detect if this is maybe flow-tools format 
-		int error1 = pclose(nf);
-		sprintf(cmd,"ft2nfdump -r %s -c 1 2>/dev/null", file);
-		ft = popen(cmd, "r");
-		int error2 = pclose(ft);
-				
-		if (error1 == 64000 && error2 == 0)
-		  {
-		    sprintf(cmd,"ft2nfdump -r %s | nfdump -r - -o pipe", file);
-		    nf = popen(cmd, "r");
-		    is_nfdump = true; // technically it is flowtools
-		  }
-		else if (error1 < 32000)
-		  {
-		    nf = popen(cmd, "r");
-		    is_nfdump = true;
-		  }
-		// could be Flowride
-		else
-		  {
-		    // This could be Flowride file
-		    // Add magic check here
-		    char line[MAXLINE];
-		    FILE* pFile = fopen (file, "r");
-		    if (pFile)
-		      {
-			char* rc = fgets(line, MAXLINE-1, pFile);
-
-
-			// Check for Flowride format, first line only
-			int i = strlen(line)-1;
-			int found = 0;
-			for(; i>0; i--)
-			  {
-			    if (line[i] == '\t')
-			      found++;
-			    if (found == 19)
-			      {
-				i-=19;
-				break;
-			      }
-			  }
-			if (!(i > 0 && found == 19))
-			  {
-			    is_flowride = true;
-			  }
-			fclose(pFile);
-		      }
-		  }
-	      }
-	    else
-	      {
-		is_pcap = true;
-	      }
-	    if (!nf && !is_pcap)
-	      {
-		fprintf(stderr,"Cannot open file %s for reading. Unknown format.\n", file);
-		pclose(nf);
-		exit(1);
-	      }
-	  }
-	else
-	  {
-	    is_live = true;
-	    is_pcap = true;
-	  }
 
 	// Now read from file
-	char line[MAXLINE];
+	char cmd[MAXLINE];
 	cout<<"Reading from "<<file<<endl;
 	firsttimeinfile = 0;
 
-	if (is_nfdump)
-	  {
-	    while (fgets(line, MAXLINE, nf) != NULL)
-	      {
-		// Check that this is the line with a flow
-		char tmpline[255];
-		strcpy(tmpline, line);
-		if (strstr(tmpline, "|") == NULL)
-		  continue;
-		strtok(tmpline,"|");
-		strtok(NULL,"|");
-		strtok(NULL,"|");
-		char* tokene;
-		char* token = strtok(NULL, "|");
-		double epoch = strtol(token, &tokene, 10);
-		token = strtok(NULL, "|");
-		int usec = atoi(token);
-		epoch = epoch + usec/1000000.0;
-		if (firsttime == 0)
-		  firsttime = epoch;
-		num_pkts++;
-		if (firsttimeinfile == 0)
-		  firsttimeinfile = epoch;
-		allflows++;
-		if (allflows % 1000000 == 0)
-		  {
-		    double diff = time(0) - start;
-		    cout<<"Processed "<<allflows<<", 1M in "<<diff<<endl;
-		    start = time(0);
-		  }
-		processedflows++;
-		// Each second
-		if (curtime - lasttime >= 1) //processedflows == (int)parms["max_flows"])
-		  {
-		    pthread_mutex_lock (&cells_lock);
-		    cout<<std::fixed<<"Done "<<time(0)<<" curtime "<<curtime<<" flows "<<processedflows<<endl;
-		    
-		    // This one we will work on next
-		    crear = (crear + 1)%QSIZE;
-		    if (crear == cfront && !cempty)
-		      {
-			perror("QSIZE is too small\n");
-			exit(1);
-		      }
-		    // zero out stats
-		    cell* c = &cells[crear];
-		    memset(c->databrick_p, 0, BRICK_DIMENSION*sizeof(int));
-		    memset(c->databrick_s, 0, BRICK_DIMENSION*sizeof(int));
-		    memset(c->wfilter_p, 0, BRICK_DIMENSION*sizeof(unsigned int));
-		    memset(c->wfilter_s, 0, BRICK_DIMENSION*sizeof(int));	  
-		    // and it will soon be full
-		    cempty = false;
-		    pthread_mutex_unlock (&cells_lock);
-		    
-		    pthread_t thread_id;
-		    pthread_create (&thread_id, NULL, reset_transmit, NULL);
-		    pthread_detach(thread_id);
-		    processedflows = 0;
-		    lasttime = curtime;
-		  }
-		amonProcessingNfdump(line, epoch); 
-	      }
-	    pclose(nf);
-	  }
-	else if (is_flowride)
-	  {
-	    char line[MAXLINE];
-	    FILE* pFile = fopen (file, "r");
-	    if (pFile)
-	      {
-		while (true)
-		  {
-		    char* rc = fgets(line, MAXLINE-1, pFile);
-		    if (rc == 0)
-		      break;
-		    
-		    char* sline = line;
-		    
-		    // Sanity check for Flowride to get rid of stray chars
-		    int i = strlen(line)-1;
-		    int found = 0;
-		    for(; i>0; i--)
-		      {
-			if (line[i] == '\t')
-			  found++;
-			if (found == 19)
-			  {
-			    i-=19;
-			    break;
-			  }
-		      }
-		    if (i > 0 && found == 19)
-		      {
-			cout<<"Corrected "<<line<<endl;
-			sline = line+i;
-		      }
-		    
-		    strcpy(saveline, sline);
-		    int dl = parse(sline,'\t', &delimiters);
-		    if (dl != 19)
-		      {
-			continue;
-		      }
-		    char sstart[MAXLINE], rstart[MAXLINE];
-		    strncpy(sstart, sline+delimiters[18],10);
-		    sstart[10] = 0;
-		    strncpy(rstart, sline+delimiters[18]+10,9);
-		    rstart[9] = 0;
-		    double epoch = (double)atoi(sstart)+(double)atoi(rstart)/1000000000;
-		    strncpy(sstart, sline,10);
-		    sstart[10] = 0;
-		    strncpy(rstart, sline+10,9);
-		    rstart[9] = 0;
-		    if (firsttime == 0)
-		      firsttime = epoch;
-		    double start = (double)atoi(sstart)+(double)atoi(rstart)/1000000000;
-		    processLine(amonProcessingFlowride, num_pkts, sline, epoch, start);
-		  }
-	      }
-	    fclose(pFile);
-	  }
-	else if (is_pcap)
+	if (!strcmp(format, "pcap") || !strcmp(format, "plive"))
 	  {
 	    char ebuf[MAXLINE];
 	    pcap_t *pt;
 	    if (is_live)
-	      pt = pcap_open_live(file, BUFSIZ, 1, 1000, ebuf);
+	      pt = pcap_open_live(file, MAXLINE, 1, 1000, ebuf);
 	    else
 	      pt = pcap_open_offline (file, ebuf);
-	    u_char* p;
-	    struct pcap_pkthdr *h;
-	    if (pt)
+	    read_from_file(pt, format);
+	  }
+	else
+	  {
+	    if (!strcmp(format, "nf"))
 	      {
-		// This is a pcap file
-		while (true)
-		  {
-		    int rc = pcap_next_ex(pt, &h, (const u_char **) &p);
-		    if (rc <= 0)
-		      break;
-		    struct ether_header* eth_header = (struct ether_header *) p;
-    
-		    if (ntohs(eth_header->ether_type) != ETHERTYPE_IP) 
-		      continue;
-		    double epoch = h->ts.tv_sec + h->ts.tv_usec/1000000.0;
-
-		    if (firsttime == 0)
-		      firsttime = epoch;
-		    num_pkts++;
-		    if (firsttimeinfile == 0)
-		      firsttimeinfile = epoch;
-		    allflows++;
-		    if (allflows % 1000000 == 0)
-		      {
-			double diff = time(0) - start;
-			cout<<"Processed "<<allflows<<", 1M in "<<diff<<endl;
-			start = time(0);
-		      }
-		    processedflows++;
-		    // Each second
-		    if (curtime - lasttime >= 1) //processedflows == (int)parms["max_flows"])
-		      {
-			pthread_mutex_lock (&cells_lock);
-			cout<<std::fixed<<"Done "<<time(0)<<" curtime "<<curtime<<" flows "<<processedflows<<endl;
-		    
-			// This one we will work on next
-			crear = (crear + 1)%QSIZE;
-			if (crear == cfront && !cempty)
-			  {
-			    perror("QSIZE is too small\n");
-			    exit(1);
-			  }
-			// zero out stats
-			cell* c = &cells[crear];
-			memset(c->databrick_p, 0, BRICK_DIMENSION*sizeof(int));
-			memset(c->databrick_s, 0, BRICK_DIMENSION*sizeof(int));
-			memset(c->wfilter_p, 0, BRICK_DIMENSION*sizeof(unsigned int));
-			memset(c->wfilter_s, 0, BRICK_DIMENSION*sizeof(int));	  
-			// and it will soon be full
-			cempty = false;
-			pthread_mutex_unlock (&cells_lock);
-			
-			pthread_t thread_id;
-			pthread_create (&thread_id, NULL, reset_transmit, NULL);
-			pthread_detach(thread_id);
-			processedflows = 0;
-			lasttime = curtime;
-		      }
-		    amonProcessingPcap(h, p, epoch); 
-		  }
-		pcap_close(pt);
+		sprintf(cmd,"nfdump -r %s -o pipe 2>/dev/null", file);
 	      }
+	    else if (!strcmp(format, "ft"))
+	      {
+		sprintf(cmd,"ft2nfdump -r %s | nfdump -r - -o pipe", file);
+	      }
+	    else if (!strcmp(format, "fr"))
+	      {
+		sprintf(cmd,"gunzip -c %s", file);
+	      }
+	    nf = popen(cmd, "r");
+	    read_from_file(nf, format);
+	    pclose(nf);
 	  }
 	cout<<"Done with the file "<<file<<" time "<<time(0)<<" flows "<<allflows<<endl;
 	if (endfile && strstr(file,endfile) != 0)
 	  break;
       }
-    }
-  else if (stream_in)
-    {
-      // Could replace this with reading directly from stream
-      char line[MAXLINE];
-      double start = time(0);
-      while (true)
-	{
-	  char* rc = fgets(line, MAXLINE-1, stdin);
-	  char* sline = line;
-	  if (rc == 0)
-	    break;
-	  	  
-	  // Sanity check for Flowride to get rid of stray chars
-	  int i = strlen(line)-1;
-	  int found = 0;
-	  for(; i>0; i--)
-	    {
-	      if (line[i] == '\t')
-		found++;
-	      if (found == 19)
-		{
-		  i-=19;
-		  break;
-		}
-	    }
-	  if (i > 0 && found == 19)
-	    {
-	      sline = line+i;
-	    }
-	  strcpy(saveline, line);
-	  int dl = parse(sline,'\t', &delimiters);
-	  if (dl != 19)
-	    {
-	      continue;
-	    }
-	   char sstart[MAXLINE], rstart[MAXLINE];
-	   strncpy(sstart, sline+delimiters[18],10);
-	   sstart[10] = 0;
-	   strncpy(rstart, sline+delimiters[18]+10,9);
-	   rstart[9] = 0;
-	   double epoch = (double)atoi(sstart)+(double)atoi(rstart)/1000000000;
-	   strncpy(sstart, sline,10);
-	   sstart[10] = 0;
-	   strncpy(rstart, sline+10,9);
-	   rstart[9] = 0;
-	   if (firsttime == 0)
-	     firsttime = epoch;
-	   double start = (double)atoi(sstart)+(double)atoi(rstart)/1000000000;
-	   processLine(amonProcessingFlowride, num_pkts, sline, epoch, start);
-	}
     }
   save_history();
   return 0;
