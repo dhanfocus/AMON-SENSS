@@ -351,8 +351,6 @@ void addSample(int index, flow_p* f, int way)
 	k.dst = f->flow.dst;
       if ((s & 1) > 0 && isservice(f->flow.dport))
 	k.dport = f->flow.dport;
-      //if (index == 3493)
-      //cout<<"s="<<s<<printsignature(k)<<" sport "<<f->flow.sport<<endl;
       if (way == LHOST || way == LPREF || way == LHFPORT || way == LHLPORT || way == LPFPORT || way == LPLPORT || way == LHSYN || way == LPSYN || way == LHSYNACK || way == LPSYNACK || way == LHRST || way == LPRST)
 	{
 	  k.dst = f->flow.dst;
@@ -365,10 +363,7 @@ void addSample(int index, flow_p* f, int way)
 	k.dport = f->flow.dport;
       if (way >= LHSYN)
 	k.flags = f->flow.flags;
-      
-      //if (index == 12205)
-      //cout<<"Add sample oci "<<f->oci<<" sig "<<printsignature(k)<<" way "<<way<<" s="<<s<<" current "<<printsignature(samples.bins[index].flows[s].flow)<<" len "<<samples.bins[index].flows[s].len<<" line "<<saveline<<" is attack "<<is_attack[index]<<endl;
-      // src, dst, sport, dport
+
       // Overload len so we can track frequency of contributions
       // Jelena - there was continue here
       // Insert sample if it does not exist
@@ -567,6 +562,28 @@ void alert_ready(cell* c, int bucket)
       cout<<curtime<<" event "<<na<<" Signature works for "<<bucket<<" wfilter "<<symf<<","<<volf<<" without "<<symb<<","<<volb<<" stored matches "<<signatures[bucket].nm<<printsignature(signatures[bucket].sig)<<endl;
       print_alert(bucket, c, na);
     }
+  is_attack[bucket] = false;
+  detection_time[bucket] = 0;
+  clearSamples(bucket);
+}
+
+void checkReady(int bucket, cell* c)
+{
+  if (signatures[bucket].nm < MM)
+    {
+      strcpy(signatures[bucket].matches[signatures[bucket].nm++], saveline);
+      if (signatures[bucket].nm == MM)
+	{
+	  alert_ready(c, bucket);
+	}
+    }
+}
+
+// Should we filter this flow?
+bool shouldFilter(int bucket, flow_t flow, cell* c)
+{
+  if (!empty(signatures[bucket].sig) && match(flow,signatures[bucket].sig))
+    return true;
   else
     {
       //if (bucket == 9464)
@@ -887,6 +904,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic to LHOST/LPREF
 	      d_bucket = myhash(flow.dst, 0, way);
+
 	      if (way == LHSYN  || way == LPSYN)
 		if (flow.flags != SYN || flow.proto != TCP)
 		  continue;
@@ -908,6 +926,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic from LHOST/LPREF
 	      s_bucket = myhash(flow.src, 0, way);
+
 	      if (way == LHSYN || way == LPSYN)
 		if ((flow.flags != SYNACK && flow.flags != ACK && flow.flags != RST) || flow.proto != TCP)
 		  continue;
@@ -920,6 +939,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	      if (way == LHRST || way == LPRST)
 		if (flow.flags != SYN || flow.proto != TCP)
 		  continue;
+
 	      c->databrick_p[s_bucket] -= len;
 	      c->databrick_s[s_bucket] -= oci;
 	      instant_detect(c, curtime, s_bucket);
@@ -1434,8 +1454,12 @@ void amonProcessingNfdump (char* line, double time)
       pkts = minpkts;
       bytes = minbytes;
     }
+<<<<<<< HEAD
   // End of hack for FRGP
   
+=======
+
+>>>>>>> 2b315cb6dd4c1990409bdb16844dc5c5f0ee7460
   //cout<<std::fixed<<"Jelena "<<start<<" "<<end<<" "<<pkts<<" "<<bytes<<endl;
   /* Is this outstanding connection? For TCP, connections without 
      PUSH are outstanding. For UDP, connections that have a request
@@ -1479,7 +1503,12 @@ void *reset_transmit (void* lt)
   
   // Serialize access to cells
   pthread_mutex_lock (&cells_lock);
+<<<<<<< HEAD
   
+=======
+  cout<<"RS locked - will work on "<<cfront<<" c is "<<(&cells[cfront])<<"\n";
+
+>>>>>>> 2b315cb6dd4c1990409bdb16844dc5c5f0ee7460
   lasttime = curtime;
   // We will process this one now
   int current = cfront;
@@ -1664,9 +1693,15 @@ void signal_callback_handler(int signum) {
 }
 
 // Read one line from file according to format
+<<<<<<< HEAD
 double read_one_line(void* nf, char* format, char* line, u_char* p,  struct pcap_pkthdr *h)
 {
   if (!strcmp(format, "nf") || !strcmp(format, "ft") || !strcmp(format,"fr"))
+=======
+double read_one_line(void* nf, char* format, char* line)
+{
+  if (!strcmp(format, "nf") || !strcmp(format, "ft"))
+>>>>>>> 2b315cb6dd4c1990409bdb16844dc5c5f0ee7460
     {
       char* s = fgets(line, MAXLINE, (FILE*) nf);
       if (s == NULL)
@@ -1674,6 +1709,7 @@ double read_one_line(void* nf, char* format, char* line, u_char* p,  struct pcap
 
       char tmpline[MAXLINE];
       strcpy(tmpline, line);
+<<<<<<< HEAD
       if (!strcmp(format, "nf") || !strcmp(format, "ft"))
 	{
 	  if (strstr(tmpline, "|") == NULL)
@@ -1708,12 +1744,21 @@ double read_one_line(void* nf, char* format, char* line, u_char* p,  struct pcap
       if (ntohs(eth_header->ether_type) != ETHERTYPE_IP) 
 	return 0;
       double epoch = h->ts.tv_sec + h->ts.tv_usec/1000000.0;
+=======
+      if (strstr(tmpline, "|") == NULL)
+	return 0;
+      int dl = parse(tmpline,'|', &delimiters);
+      double epoch = strtol(tmpline+delimiters[0],NULL,10);
+      int msec = atoi(tmpline+delimiters[1]);
+      epoch = epoch + msec/1000.0;
+>>>>>>> 2b315cb6dd4c1990409bdb16844dc5c5f0ee7460
       return epoch;
     }
   //Jelena add more formats
   return 0;
 }
 
+<<<<<<< HEAD
 void process_one_line(char* line, void* nf, double epoch, char* format, u_char* p, struct pcap_pkthdr *h)
 {
   if (!strcmp(format, "nf") || !strcmp(format, "ft"))
@@ -1722,6 +1767,12 @@ void process_one_line(char* line, void* nf, double epoch, char* format, u_char* 
     amonProcessingFlowride (line, epoch);
   else if (!strcmp(format, "pcap"))
     amonProcessingPcap(p, h, epoch);
+=======
+void amonProcess(char* line, double epoch, char* format)
+{
+  if (!strcmp(format, "nf") || !strcmp(format, "ft"))
+    amonProcessingNfdump (line, epoch);
+>>>>>>> 2b315cb6dd4c1990409bdb16844dc5c5f0ee7460
   // add more formats
 }
 
@@ -1733,9 +1784,13 @@ void read_from_file(void* nf, char* format)
   double epoch;
   int num_pkts = 0;
   double start = time(0);
+<<<<<<< HEAD
   u_char* p;
   struct pcap_pkthdr *h;
   while ((epoch = read_one_line(nf, format, line, p, h)) != -1)
+=======
+  while ((epoch = read_one_line(nf, format, line)) != -1)
+>>>>>>> 2b315cb6dd4c1990409bdb16844dc5c5f0ee7460
     {
       if (epoch == 0)
 	continue;
@@ -1757,7 +1812,11 @@ void read_from_file(void* nf, char* format)
 	{
 	  pthread_mutex_lock (&cells_lock);
 	  lastbintime = curtime;
+<<<<<<< HEAD
 	  //cout<<std::fixed<<"Done "<<time(0)<<" curtime "<<curtime<<" lasttime "<<lasttime<<" flows "<<processedflows<<endl;
+=======
+	  cout<<std::fixed<<"Done "<<time(0)<<" curtime "<<curtime<<" lasttime "<<lasttime<<" flows "<<processedflows<<endl;
+>>>>>>> 2b315cb6dd4c1990409bdb16844dc5c5f0ee7460
 	  
 	  // This one we will work on next
 	  crear = (crear + 1)%QSIZE;
@@ -1782,7 +1841,11 @@ void read_from_file(void* nf, char* format)
 	  processedflows = 0;
 	  lasttime = curtime;
 	}
+<<<<<<< HEAD
       process_one_line(line, nf, epoch, format, p, h);
+=======
+      amonProcess(line, epoch, format);
+>>>>>>> 2b315cb6dd4c1990409bdb16844dc5c5f0ee7460
     }
 }
 
@@ -1856,9 +1919,15 @@ int main (int argc, char *argv[])
   parse_config(parms, sparms);
   // Load service port numbers
   noorphan = (bool) parms["no_orphan"];
+<<<<<<< HEAD
 
   signal(SIGINT, signal_callback_handler);
 
+=======
+
+  signal(SIGINT, signal_callback_handler);
+
+>>>>>>> 2b315cb6dd4c1990409bdb16844dc5c5f0ee7460
   /* Connect to DB
   try {
     driver = get_driver_instance();

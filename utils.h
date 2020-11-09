@@ -31,6 +31,7 @@
 using namespace std;
 
 #define ADELAY 35
+
 #define NUMF 16                    // How many ways do we bin the traffic
 enum ways{LHOST, LPREF, FPORT, LPORT, LHFPORT, LHLPORT, LPFPORT, LPLPORT, LHSYN, LPSYN, LHSYNACK, LPSYNACK, LHACK, LPACK, LHRST, LPRST};
 
@@ -41,7 +42,7 @@ enum ways{LHOST, LPREF, FPORT, LPORT, LHFPORT, LHLPORT, LPFPORT, LPLPORT, LHSYN,
 #define MIN_FRESH 10              // have seen most of their records
 #define HMB 1.1                   // This is how much more a less specific signature should catch to be accepted
 #define MAXLINE 1024              // Maximum length for reading strings
-#define MM 10                     // Samples of flows that match a signature
+#define MM 1                      // Samples of flows that match a signature
 #define AR_LEN 30                 // How many delimiters may be in an array
 #define MAX_DIFF 10               // How close should a timestamp be to the one where attack is detected
 #define NF 20                     // Number of different signatures for a flow
