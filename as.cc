@@ -63,7 +63,7 @@
 
 #define BILLION 1000000000L
 #define DAY 86400
-#define FRGP 1
+#define UPSAMPLE 0
 
 using namespace std;
 
@@ -1494,8 +1494,9 @@ void amonProcessingNfdump (char* line, double time)
   
   int minpkts = 1, minbytes = 1;
 
-  // Correcting for FRGP
-  if (FRGP)
+  // Correcting for missed upsampling
+  // UPSAMPLE start
+  if (UPSAMPLE)
     {
       if (pkts % 100 == 0)
 	{
@@ -1508,6 +1509,7 @@ void amonProcessingNfdump (char* line, double time)
 	  minbytes = bytes/(pkts/4096+1);
 	}
     }
+  // UPSAMPLE end
   
   pkts = (int)(pkts/(dur+1))+1;
   bytes = (int)(bytes/(dur+1))+1;
@@ -1810,6 +1812,7 @@ int main (int argc, char *argv[])
   // Touch alerts file
   ofstream out;
   out.open("alerts.txt", std::ios_base::out);
+  out<<"#attackID intID start-time bin bytes packets signature\n";
   out.close();
   
   char c, buf[32];

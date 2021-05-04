@@ -2,16 +2,20 @@ This is AMON-SENSS, software for scalable detection of DDoS attacks and
 creation of signatures for attack filtering. Signatures and alerts are
 exported in real time into alerts.txt file. You will soon discover when
 you run this tool that there are many attacks that get detected. This is
-an unfortunate fact -- today's traffic has many DDoS attacks present.
-Many are low volume or low duration and may not require a response. You
-can write another tool that parses alerts.txt and decides which attacks are
-sufficiently large and sufficiently long to require a response. In that case
-you can use the provided signature for the response.
+an unfortunate fact -- today's traffic is often one-way and has many
+anomalies that AMON-SENSS picks up. You can use read_alerts tool to narrow
+down just to attacks for which we have high confidence. 
 
 See the INSTALL file for detailed information about how to configure
 and install AMON-SENSS.
 
-Run the Perl script asc to configure the parameters via a dialogue. 
+Run the Perl script amon-senss.config to configure the parameters via a dialogue. 
+
+If you are feeding sampled Netflow records that are not upsampled by nfdump
+then enable UPSAMPLE flag in as.cc and provide the upsampling logic between
+"UPSAMPLE start" and "UPSAMPLE end" (the logic shown is for the case where
+one router was upsampling with factor 100 and the other did not upsample - we
+correct this knowing that other router's sampling rate was 4,096).
 
 To understand how AMON-SENSS works download the document
 http://steel.isi.edu/projects/SENSS/amon-senss.pdf
@@ -23,19 +27,15 @@ to attacks that are detected
 
 =======================================================================
 AMON-SENSS expects as input one or more files with Netflow records
-(nfdump or flow-tools format). If you specify a folder holding these
+(nfdump or flow-tools format), pcap or Flowride records.
+If you specify a folder holding these
 files, possibly in some subfolders, the program will read the folder(s)
 contents, sort by file name and process files in this order.
 
 AMON-SENSS produces alerts in alerts.txt file in real time.
-The format of alerts.txt is as follows:
 
-START bin_number start_time volume asymmetry good_flows_matched bad_flows_matched signature
-STOP bin_number stop_time
-
-If you run it with -v flag, it will also produce some traffic statistics
-for each bin in binnumber.debug files. You can graph these with gnuplot
-or similar to see the traffic trends and the detection signals
+If you run it with -v flag, it will also produce debugging output, which is
+very verbose. 
 
 =======================================================================
 
