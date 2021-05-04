@@ -133,8 +133,8 @@ int zeros(flow_t a)
 // proto doesn't count
 bool empty(flow_t sig)
 {
-  return ((sig.src == 0) && (sig.sport == -1) &&
-	  (sig.dst == 0) && (sig.dport == -1) && (sig.flags == 0));
+  return ((sig.src == 0) && (sig.sport == -1 || sig.sport == 0) &&
+	  (sig.dst == 0) && (sig.dport == -1 || sig.dport == 0) && (sig.flags == 0));
 }
 
 
@@ -144,11 +144,16 @@ bool bettersig(flow_t a, flow_t b)
 {
   if (empty(b))
     return 1;
-  if ((zeros(a) <= zeros(b)) &&
-      (a.src == 0 && ((a.sport != -1 && a.dport == -1) || (a.dport != -1 && a.sport == -1))))
+   if ((zeros(a) <= zeros(b)) &&
+       (a.src == 0 && ((a.sport != -1 && a.dport == -1) || (a.dport != -1 && a.sport == -1))))
     return 1;
   return 0;
 }
+
+
+extern map<unsigned int, struct shuffle_cell> memshuffle;
+extern int BRICK_FINAL;
+extern int shuffle_index;
 
 // Simple hash function
 // Take the second and third bytes, convert into int and mod
@@ -158,42 +163,49 @@ int myhash(u_int32_t ip, unsigned short port, int way)
   // 1 - local ip, 2 - local pref /24, 3 - foreign port, 4 - local port,
   // 5 - localip+forport, 6 - localip+localport, 7 - localpref+forport, 8 - localpref+localport
   // 9 - localip+syn, 10 - localpref+syn, 11 - localip+synack, 12 - localpref+synack, 13 - localip+rst, 14 - localpref+rst
-  switch (way)
+  if (memshuffle.find(ip) != memshuffle.end())
     {
-    case LHOST:
-      return ip % BRICK_UNIT;
-    case LPREF:
-      return ((ip & 0xffffff00) % BRICK_UNIT) + BRICK_UNIT;
-    case FPORT:
-      return (port % BRICK_UNIT) + 2*BRICK_UNIT;
-    case LPORT:
-      return (port % BRICK_UNIT) + 3*BRICK_UNIT;
-    case LHFPORT:
-      return ((ip + port) % BRICK_UNIT) + 4*BRICK_UNIT;
-    case LHLPORT:
-      return ((ip + port) % BRICK_UNIT) + 5*BRICK_UNIT;
-    case LPFPORT:
-      return (((ip & 0xffffff00) + port) % BRICK_UNIT) + 6*BRICK_UNIT;
-    case LPLPORT:
-      return (((ip & 0xffffff00) + port) % BRICK_UNIT) + 7*BRICK_UNIT;
-    case LHSYN:
-      return (ip % BRICK_UNIT) + 8*BRICK_UNIT;
-    case LPSYN:
-      return ((ip & 0xffffff00) % BRICK_UNIT) + 9*BRICK_UNIT;
-    case LHSYNACK:
-      return (ip % BRICK_UNIT) + 10*BRICK_UNIT;
-    case LPSYNACK:
-      return ((ip & 0xffffff00) % BRICK_UNIT) + 11*BRICK_UNIT;
-    case LHACK:
-      return (ip % BRICK_UNIT) + 12*BRICK_UNIT;
-    case LPACK:
-      return ((ip & 0xffffff00) % BRICK_UNIT) + 13*BRICK_UNIT;
-    case LHRST:
-      return (ip % BRICK_UNIT) + 14*BRICK_UNIT;
-    case LPRST:
-      return ((ip & 0xffffff00) % BRICK_UNIT) + 15*BRICK_UNIT;
-    default:
-      return 0;
+      return memshuffle[ip].index + (int)way*(shuffle_index+BRICK_UNIT);
+    }
+  else
+    {
+      switch (way)
+	{
+	case LHOST:
+	  return ip % BRICK_UNIT + shuffle_index;
+	case LPREF:
+	  return ((ip & 0xffffff00) % BRICK_UNIT) + BRICK_UNIT + 2*shuffle_index;
+	case FPORT:
+	  return (port % BRICK_UNIT) + 2*BRICK_UNIT + 3*shuffle_index;
+	case LPORT:
+	  return (port % BRICK_UNIT) + 3*BRICK_UNIT + 4*shuffle_index;
+	case LHFPORT:
+	  return ((ip + port) % BRICK_UNIT) + 4*BRICK_UNIT + 5*shuffle_index;
+	case LHLPORT:
+	  return ((ip + port) % BRICK_UNIT) + 5*BRICK_UNIT  + 6*shuffle_index;
+	case LPFPORT:
+	  return (((ip & 0xffffff00) + port) % BRICK_UNIT) + 6*BRICK_UNIT + 7*shuffle_index;
+	case LPLPORT:
+	  return (((ip & 0xffffff00) + port) % BRICK_UNIT) + 7*BRICK_UNIT + 8*shuffle_index;
+	case LHSYN:
+	  return (ip % BRICK_UNIT) + 8*BRICK_UNIT  + 9*shuffle_index;
+	case LPSYN:
+	  return ((ip & 0xffffff00) % BRICK_UNIT) + 9*BRICK_UNIT + 10*shuffle_index;
+	case LHSYNACK:
+	  return (ip % BRICK_UNIT) + 10*BRICK_UNIT + 11*shuffle_index;
+	case LPSYNACK:
+	  return ((ip & 0xffffff00) % BRICK_UNIT) + 11*BRICK_UNIT + 12*shuffle_index;
+	case LHACK:
+	  return (ip % BRICK_UNIT) + 12*BRICK_UNIT + 13*shuffle_index;
+	case LPACK:
+	  return ((ip & 0xffffff00) % BRICK_UNIT) + 13*BRICK_UNIT + 14*shuffle_index;
+	case LHRST:
+	  return (ip % BRICK_UNIT) + 14*BRICK_UNIT  + 15*shuffle_index;
+	case LPRST:
+	  return ((ip & 0xffffff00) % BRICK_UNIT) + 15*BRICK_UNIT + 16*shuffle_index;
+	default:
+	  return 0;
+	}
     }
 }
 
@@ -214,15 +226,12 @@ int loadservices(const char* fname)
 // Is this a service port?
 bool isservice(int port)
 {
-  if (port < 1024)
-    return 1;
+  if (services.find(port) != services.end())
+    return services[port];
   else
     return 0;
-  //if (services.find(port) != services.end())
-  // return services[port];
-  //else
-  // return 0;
 }
+
 
 // Load local prefixes
 set <u_int32_t> localprefs24;
@@ -237,8 +246,10 @@ void loadprefixes(const char* fname)
   char mask[30];
   while(inFile >> pref)
     {
+      cout<<"Prefix "<<pref<<endl;
       if (strstr(pref,":") > 0)
 	{
+	  cout<<"IPv6\n";
 	  continue;
 	}
       char* ptr = strstr(pref, "/");

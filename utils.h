@@ -31,18 +31,17 @@
 using namespace std;
 
 #define ADELAY 35
-
 #define NUMF 16                    // How many ways do we bin the traffic
 enum ways{LHOST, LPREF, FPORT, LPORT, LHFPORT, LHLPORT, LPFPORT, LPLPORT, LHSYN, LPSYN, LHSYNACK, LPSYNACK, LHACK, LPACK, LHRST, LPRST};
 
-#define BRICK_UNIT 3137            // How many bins we have. This should NOT be a power of 2
+#define BRICK_UNIT 3337            // How many bins we have. This should NOT be a power of 2
 #define BRICK_DIMENSION NUMF*BRICK_UNIT // There are NUMF variants of how we can bin the traffic (e.g., by port, by dst IP, etc.)
 #define SIGTIME 1
 #define REPORT_THRESH 30
 #define MIN_FRESH 10              // have seen most of their records
 #define HMB 1.1                   // This is how much more a less specific signature should catch to be accepted
 #define MAXLINE 1024              // Maximum length for reading strings
-#define MM 1                      // Samples of flows that match a signature
+#define MM 10                     // Samples of flows that match a signature
 #define AR_LEN 30                 // How many delimiters may be in an array
 #define MAX_DIFF 10               // How close should a timestamp be to the one where attack is detected
 #define NF 20                     // Number of different signatures for a flow
@@ -59,13 +58,19 @@ enum flags {SYN=2, SYNACK=18, PUSH=8, PUSHACK = 24, RST=4, ACK=16}; // Flags we 
 
 
 
-
 class DataBuf : public streambuf
 {
  public:
   DataBuf(char * d, size_t s) {
     setg(d, d, d + s);
   }
+};
+
+struct shuffle_cell
+{
+  int index;
+  unsigned int len;
+  unsigned int oci;
 };
 
 // 5-tuple for the flow
@@ -184,7 +189,7 @@ struct sample_p
 // Holds the samples for each bin
 struct sample
 {
-  sample_p bins[BRICK_DIMENSION];
+  sample_p* bins;
   long timestamp;
 };
 
@@ -210,4 +215,5 @@ bool islocal(u_int32_t ip);
 int zeros(flow_t f);
 unsigned int todec(string ip);
 bool empty(flow_t sig);
+string toip(unsigned int addr);
 #endif
