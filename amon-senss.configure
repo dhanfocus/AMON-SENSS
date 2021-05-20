@@ -101,7 +101,19 @@ else
     print $fh "filter_thresh=" . $r . "\n";
 }
 
-print $fh "min_oci=10\nmax_oci=100\ncusum_thresh=30\n";
+print "What is the smallest attack (in pps) you want to detect (>1, default = 1000) ";
+$input = <STDIN>;
+if (trim($input) eq "")
+{
+    print $fh "min_oci=1000\n";
+}
+else
+{
+    $r = trim($input);
+    print $fh "min_oci=" . $r . "\n";
+}
+
+print $fh "cusum_thresh=30\n";
 print "\n\nConfiguration complete!\n";
 close($fh);
 

@@ -1,21 +1,33 @@
-# Merge alerts so that we have fewer to compare with peakflow
+#!/usr/bin/perl
+# Merge alerts 
 # Specify alerts.txt file on the command line
+# Alerts will be printed with delay DELAY_START
+# Attack end is detected with delay DELAY_END
+# Alerts must have packet rate above $PKTS to be printed
 
-
-$THRESH = 10;
-$DELAY = 3600;
-$PKTS = 1;
+$DELAY_START = 10;
+$DELAY_END = 300;
+$PKTS = 10000;
 
 $usage="$0 alerts-file\n";
 
 %alerts = ();
 
 $mid = 0;
+our $lasttime = 0;
 
 sub gettime
 {
     $time = shift;
-    my ($sec, $min, $hour, $day,$month,$year) = (localtime($time))[0,1,2,3,4,5];
+    $type = shift;
+    if ($type eq "loc")
+    {    
+	($sec, $min, $hour, $day,$month,$year) = (localtime($time))[0,1,2,3,4,5];
+    }
+    else	
+    {    
+	($sec, $min, $hour, $day,$month,$year) = (gmtime($time))[0,1,2,3,4,5];
+    }
     $month++;
     if ($month < 10)
     {
@@ -42,17 +54,62 @@ sub gettime
 }
 
 
+sub printalert
+{
+    $target = shift;
+    $event = shift;
+    $r = $alerts{$target}{'bytes'}*8/1000000000;
+    $start =  $alerts{$target}{'start'};
+    $end =  $alerts{$target}{'end'};
+    $apkts =  $alerts{$target}{'pkts'}/1000000;
+    $bytes =  $alerts{$target}{'bytes'};
+    $sutc = gettime($start, "utc");
+    $sloc = gettime($start, "loc");
+    $eutc = gettime($end, "utc");
+    $eloc = gettime($end, "loc");
+    print "  Target: $target\n";
+    print "   Event: $event\n";
+    if ($event eq 'START')
+    {
+	print "   Time:  $start ($sutc UTC, $sloc local time)\n";
+    }
+    else
+    {
+	print "   Time:  $end ($eutc UTC, $eloc local time)\n";
+    }
+    print "Est rate: $r Gbps $apkts Mpps\n";
+
+    for my $t (sort keys %{$alerts{$target}{'text'}})
+    {
+	if ($t ne "")
+	{
+	    print " Signatr: $t\n";
+	}
+    }
+    print "\n";
+}
+
 sub cleanalerts
 {
-    $curtime = time.time();
-    for $t (keys %alerts)
+    $curtime = shift;
+    for my $t (keys %alerts)
     {
-	for $id (keys %{$alerts{$t}})
+	$diff = $alerts{$t}{'end'} - $alerts{$t}{'start'};
+	if ($curtime - $alerts{$t}{'start'} > $DELAY_START && $alerts{$t}{'print'} == 1 && $alerts{$t}{'pkts'} >= $PKTS)
 	{
-	    if ($curtime - $alerts{$t}{$id}{'end'} > $DELAY)
+	    if ($diff > 0)
 	    {
-		delete($alerts{$t}{$id});
+		printalert($t, 'START');
+		$alerts{$t}{'print'} = 0;
 	    }
+	}
+	if ($curtime - $alerts{$t}{'end'} > $DELAY_END)
+	{
+	    if ($alerts{$t}{'print'} == 0)
+	    {
+		printalert($target, 'END');
+	    }
+	    delete($alerts{$t});
 	}
     }
 }
@@ -62,20 +119,30 @@ if ($#ARGV < 0)
     print $usage;
     exit(1);
 }
+$lasttime = time();
 open($FH,'<',$ARGV[0]) || die("no such file ", $ARGV[0]);
 $curpos = tell($FH);
 for (;;) {
-    %printalerts = ();
-    cleanalerts();
-    
+    # For interactive printing
+    if (time() - $lasttime > $DELAY_START)
+    {
+	cleanalerts(time());
+    }
+    $curtime = 0;
     for (; $_ = readline($FH); $curpos = tell($FH))
     {
 	@items = split /\s+/, $_;
 	$id = $items[0];
 	$time = $items[2];
+	$lasttime = $time;
 	$bytes = $items[5];
 	$pkts = $items[6];
 	$text = "";
+	if ($curtime == 0 || $time > $curtime)
+	{
+	    $curtime = $time;
+	    cleanalerts($time);
+	}
 	for ($i=7; $i <= $#items; $i++)
 	{
 	    if ($text eq "")
@@ -148,9 +215,6 @@ for (;;) {
 		{
 		    $type = 262144;
 		}
-		else
-		{
-		}
 	    }
 	    elsif ($_ =~ /proto icmp/)
 	    {
@@ -176,191 +240,40 @@ for (;;) {
 	    {
 		next;
 	    }
-	    $alerts{$target}{$id}{'text'} = $text;
-	    $alerts{$target}{$id}{'time'} = $time;
-	    $alerts{$target}{$id}{'type'} = $type;
-	    $alerts{$target}{$id}{'bytes'} = $bytes;
-	    $alerts{$target}{$id}{'pkts'} = $pkts;
 	}
-    }
-    for $target (keys %alerts)
-    {
-	$stime = 0;
-	$etime = 0;
-	%p = ();
-	$bytes = 0;
-	$pkts = 0;
-	$type = 0;
-	$pid = 0;
-	$num = 0;
-	$start = 0;
-	$end = 0;
-	$votes = 0;
-	for $id (sort {$a <=> $b} keys %{$alerts{$target}})
+	if (!exists($alerts{$target}))
 	{
-	    $votes++;
-	    if ($start == 0)
-	    {
-		$start =  $alerts{$target}{$id}{'time'};
-		$type = $alerts{$target}{$id}{'type'};
-	    }
-	    if ($bytes < abs($alerts{$target}{$id}{'bytes'}) || $bytes == 0)
-	    {
-		$bytes = abs($alerts{$target}{$id}{'bytes'});
-	    }
-	    if ($pkts <  abs($alerts{$target}{$id}{'pkts'}) || $pkts == 0)
-	    {
-		$pkts = abs($alerts{$target}{$id}{'pkts'});
-	    }
-	    if ($end == 0 || ($alerts{$target}{$id}{'time'} - $end > $THRESH))
-	    {
-		$diff = $end - $start;
-		$apkts = $pkts;
-		
-		if ($apkts > $PKTS && $type > 0 && $diff > 0)
-		{
-		    $printalerts{$target}{$mid}{'start'} = $start;
-		    $printalerts{$target}{$mid}{'end'} = $end;
-		    $printalerts{$target}{$mid}{'type'} = $type;
-		    $printalerts{$target}{$mid}{'bytes'} = $bytes;
-		    $printalerts{$target}{$mid}{'pkts'} = $pkts;
-		    $printalerts{$target}{$mid}{'print'} = 1;
-		    $printalerts{$target}{$mid}{'votes'} = $votes;
-		    for $t (keys %p)
-		    {
-			$printalerts{$target}{$mid}{'text'}{$t} = 1;
-		    }
-		    %p = ();
-		    $mid ++;
-		}
-		$votes = 0;
-		$start = $alerts{$target}{$id}{'time'};
-		$bytes = $alerts{$target}{$id}{'bytes'};
-		$pkts = 0;
-		$p{$alerts{$target}{$id}{'text'}} = 1;
-		$pid = $id;
-		$num = 0;	    
-	    }
-	    else
-	    {
-		if ($type != $alerts{$target}{$id}{'type'})
-		{
-		    $type |= $alerts{$target}{$id}{'type'};
-		    $p{$alerts{$target}{$id}{'text'}} = 1;
-		}
-		if ($etime < $alerts{$target}{$id}{'time'})
-		{
-		    $etime = $alerts{$target}{$id}{'time'};
-		}
-		$votes++;
-	    }
-	    $end = $etime;
-	    if ($stime == 0)
-	    {
-		$stime = $alerts{$target}{$id}{'time'};
-	    }
-	    if ($etime < $alerts{$target}{$id}{'time'})
-	    {
-		$etime = $alerts{$target}{$id}{'time'};
-	    }
-	    if ($bytes < abs($alerts{$target}{$id}{'bytes'}))
-	    {
-		$bytes = abs($alerts{$target}{$id}{'bytes'});
-	    }
-	    if ($pkts <  abs($alerts{$target}{$id}{'pkts'}))
-	    {
-		$pkts = abs($alerts{$target}{$id}{'pkts'});
-	    }
-	    $num++;
+	    $alerts{$target}{'text'}{$text} = 1;
+	    $alerts{$target}{'start'} = $time;
+	    $alerts{$target}{'end'} = $time;
+	    $alerts{$target}{'type'} = $type;
+	    $alerts{$target}{'bytes'} = $bytes;
+	    $alerts{$target}{'pkts'} = $pkts;
+	    $alerts{$target}{'print'} = 1;
 	}
-	$diff = $end - $start;
-	$apkts = $pkts;
-	
-	if ($apkts > $PKTS && $type > 0 && $diff > 0)
-	{	
-	    $printalerts{$target}{$mid}{'start'} = $start;
-	    $printalerts{$target}{$mid}{'end'} = $end;
-	    $printalerts{$target}{$mid}{'type'} = $type;
-	    $printalerts{$target}{$mid}{'bytes'} = $bytes;
-	    $printalerts{$target}{$mid}{'pkts'} = $pkts;	
-	    $printalerts{$target}{$mid}{'print'} = 1;
-	    $printalerts{$target}{$mid}{'votes'} = $votes;
-	    for $t (keys %p)
-	    {
-		$printalerts{$target}{$mid}{'text'}{$t} = 1;
-	    }
-	    %p = ();
-	    $mid ++;
-	}
-    }
-    for $target (sort {$a <=> $b} keys %printalerts)
-    {
-	for $id1 (sort {$a <=> $b} keys %{$printalerts{$target}})
+	else
 	{
-	    if ($printalerts{$target}{$id1}{'print'} == 0)
+	    if (!exists($alerts{$target}{'text'}{$text}))
 	    {
-		next;
+		$alerts{$target}{'text'}{$text} = 1;
+		$alerts{$target}{'type'} |= $type;
+		printalert($target, 'UPDATE SIG');
 	    }
-
-	    for $id2 (sort {$a <=> $b} keys %{$printalerts{$target}})
+	    if ($pkts > $alerts{$target}{'pkts'})
 	    {
-		if ($id1 >= $id2)
+		$alerts{$target}{'pkts'} = $pkts;
+	    }
+	    if ($bytes > $alerts{$target}{'bytes'})
+	    {
+		$alerts{$target}{'bytes'} = $bytes;
+		if ($alerts{$target}{'print'} == 0)
 		{
-		    next;
-		}
-		if ($printalerts{$target}{$id2}{'start'} < $printalerts{$target}{$id1}{'end'} + 300 && $printalerts{$target}{$id2}{'print'} && $printalerts{$target}{$id1}{'print'})
-		{
-		    $printalerts{$target}{$id1}{'end'} = $printalerts{$target}{$id2}{'end'};
-		    $printalerts{$target}{$id1}{'type'} |= $printalerts{$target}{$id2}{'type'};
-		    $printalerts{$target}{$id1}{'votes'} += $printalerts{$target}{$id2}{'votes'};
-		    if ($printalerts{$target}{$id2}{'bytes'} > abs($alerts{$target}{$id1}{'bytes'}))
-		    {
-			$printalerts{$target}{$id1}{'bytes'} = $printalerts{$target}{$id2}{'bytes'};
-		    }
-		    if ($printalerts{$target}{$id2}{'pkts'} > abs($alerts{$target}{$id1}{'pkts'}))
-		    {
-			$printalerts{$target}{$id1}{'pkts'} = $printalerts{$target}{$id2}{'pkts'};
-		    }
-		    $printalerts{$target}{$id2}{'print'} = 0;
-		    
-		    for $t (keys %{$printalerts{$target}{$id2}{'text'}})
-		    {
-			$printalerts{$target}{$id1}{'text'}{$t} = 1;
-		    }
+		    printalert($target, 'UPDATE RATE');
 		}
 	    }
-	}
-    }
-    print "===================================================\n";
-    for $target (sort {$a <=> $b} keys %printalerts)
-    {
-	for $id (sort {$a <=> $b} keys %{$printalerts{$target}})
-	{
-	    if ($printalerts{$target}{$id}{'print'})
+	    if ($time > $alerts{$target}{'end'})
 	    {
-		$start =  $printalerts{$target}{$id}{'start'};
-		$end =  $printalerts{$target}{$id}{'end'};
-		$apkts =  $printalerts{$target}{$id}{'pkts'};
-		$bytes =  $printalerts{$target}{$id}{'bytes'};
-		$votes =  $printalerts{$target}{$id}{'votes'};
-		$type =  $printalerts{$target}{$id}{'type'};
-		$sutc = gettime($start + 8*3600);
-		$sloc = gettime($start);
-		$eutc = gettime($end + 8*3600);
-		$eloc = gettime($end);
-		print "  Target: $target\n";
-		print "   Start: $start ($sutc UTC, $sloc local time)\n";
-		print "     End: $end ($eutc UTC, $eloc local time)\n";
-		print "Est rate: $bytes bps $apkts pps\n";
-		
-		for $t (keys %{$printalerts{$target}{$id}{'text'}})
-		{
-		    if ($t ne "")
-		    {
-			print " Signatr: $t\n";
-		    }
-		}
-		print "\n";
+		$alerts{$target}{'end'} = $time;		
 	    }
 	}
     }

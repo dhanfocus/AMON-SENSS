@@ -63,7 +63,6 @@
 
 #define BILLION 1000000000L
 #define DAY 86400
-#define UPSAMPLE 0
 
 using namespace std;
 
@@ -1489,39 +1488,10 @@ void amonProcessingNfdump (char* line, double time)
 
   pkts = atoi(line+delimiters[21]);
 
-  // This is where sampling is handled
-
-  
-  int minpkts = 1, minbytes = 1;
-
-  // Correcting for missed upsampling
-  // UPSAMPLE start
-  if (UPSAMPLE)
-    {
-      if (pkts % 100 == 0)
-	{
-	  minpkts = 100;
-	  minbytes = bytes/(pkts/100);
-	}
-      else
-	{
-	  minpkts = 4096;
-	  minbytes = bytes/(pkts/4096+1);
-	}
-    }
-  // UPSAMPLE end
-  
+  // Get the rate
   pkts = (int)(pkts/(dur+1))+1;
   bytes = (int)(bytes/(dur+1))+1;
   
-  if (pkts < minpkts)
-    {
-      pkts = minpkts;
-      bytes = minbytes;
-    }
-  // End of handling sampling
-  
-
   /* Is this outstanding connection? For TCP, connections without 
      PUSH are outstanding. For UDP, connections that have a request
      but not a reply are outstanding. Because bidirectional flows
