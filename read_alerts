@@ -3,11 +3,14 @@
 # Specify alerts.txt file on the command line
 # Alerts will be printed with delay DELAY_START
 # Attack end is detected with delay DELAY_END
-# Alerts must have packet rate above $PKTS to be printed
+# Alerts must have packet rate above PKTS to be printed
+
+$|=1;
 
 $DELAY_START = 10;
 $DELAY_END = 300;
 $PKTS = 10000;
+$UPDATE = 0;
 
 $usage="$0 alerts-file\n";
 
@@ -92,7 +95,8 @@ sub printalert
 sub cleanalerts
 {
     $curtime = shift;
-    for my $t (keys %alerts)
+    @salerts = keys %alerts;
+    for my $t (@salerts)
     {
 	$diff = $alerts{$t}{'end'} - $alerts{$t}{'start'};
 	if ($curtime - $alerts{$t}{'start'} > $DELAY_START && $alerts{$t}{'print'} == 1 && $alerts{$t}{'pkts'} >= $PKTS)
@@ -107,7 +111,7 @@ sub cleanalerts
 	{
 	    if ($alerts{$t}{'print'} == 0)
 	    {
-		printalert($target, 'END');
+		printalert($t, 'END');
 	    }
 	    delete($alerts{$t});
 	}
@@ -257,7 +261,13 @@ for (;;) {
 	    {
 		$alerts{$target}{'text'}{$text} = 1;
 		$alerts{$target}{'type'} |= $type;
-		printalert($target, 'UPDATE SIG');
+		if ($alerts{$target}{'print'} == 0)
+		{
+		    if ($UPDATE)
+		    {
+			printalert($target, 'UPDATE SIG');
+		    }
+		}
 	    }
 	    if ($pkts > $alerts{$target}{'pkts'})
 	    {
@@ -268,7 +278,10 @@ for (;;) {
 		$alerts{$target}{'bytes'} = $bytes;
 		if ($alerts{$target}{'print'} == 0)
 		{
-		    printalert($target, 'UPDATE RATE');
+		    if ($UPDATE)
+		    {
+			printalert($target, 'UPDATE RATE');
+		    }
 		}
 	    }
 	    if ($time > $alerts{$target}{'end'})
