@@ -1,4 +1,4 @@
-# Specify the IP and the type to pull
+#  Specify the IP and the type to pull
 
 $usage = "$0 IP type\n";
 if ($#ARGV < 1)
