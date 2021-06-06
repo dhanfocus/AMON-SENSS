@@ -34,7 +34,7 @@ using namespace std;
 #define NUMF 16                    // How many ways do we bin the traffic
 enum ways{LHOST, LPREF, FPORT, LPORT, LHFPORT, LHLPORT, LPFPORT, LPLPORT, LHSYN, LPSYN, LHSYNACK, LPSYNACK, LHACK, LPACK, LHRST, LPRST};
 
-#define BRICK_UNIT 337            // How many bins we have. This should NOT be a power of 2
+#define BRICK_UNIT 3337            // How many bins we have. This should NOT be a power of 2
 #define BRICK_DIMENSION NUMF*BRICK_UNIT // There are NUMF variants of how we can bin the traffic (e.g., by port, by dst IP, etc.)
 #define SIGTIME 1
 #define REPORT_THRESH 30
@@ -42,7 +42,7 @@ enum ways{LHOST, LPREF, FPORT, LPORT, LHFPORT, LHLPORT, LPFPORT, LPLPORT, LHSYN,
 #define HMB 1.1                   // This is how much more a less specific signature should catch to be accepted
 #define MAXLINE 1024              // Maximum length for reading strings
 #define MM 10                     // Samples of flows that match a signature
-#define AR_LEN 30                 // How many delimiters may be in an array
+#define AR_LEN 1000                // How many delimiters may be in an array
 #define MAX_DIFF 10               // How close should a timestamp be to the one where attack is detected
 #define NF 20                     // Number of different signatures for a flow
 #define QSIZE 100                 // How many timestamps can I accumulate before processing
@@ -65,13 +65,6 @@ class DataBuf : public streambuf
   DataBuf(char * d, size_t s) {
     setg(d, d, d + s);
   }
-};
-
-struct shuffle_cell
-{
-  int index;
-  unsigned int len;
-  unsigned int oci;
 };
 
 // 5-tuple for the flow
@@ -136,6 +129,8 @@ class flow_t{
   }
 };
 
+string toip(unsigned int d);
+
 // This wraps a flow and keeps some statistics
 class flow_p
 {
@@ -190,7 +185,7 @@ struct sample_p
 // Holds the samples for each bin
 struct sample
 {
-  sample_p* bins;
+  sample_p bins[BRICK_DIMENSION];
   long timestamp;
 };
 
@@ -216,5 +211,4 @@ bool islocal(u_int32_t ip);
 int zeros(flow_t f);
 unsigned int todec(string ip);
 bool empty(flow_t sig);
-string toip(unsigned int addr);
 #endif

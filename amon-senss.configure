@@ -89,30 +89,31 @@ else
 }
 
 
-print "How long do you want to measure (in seconds) once you have a possible signature, to estimate collateral damage? (default = 1s) ";
+print "What fraction of anomalous traffic should signature cover (0-1, default = 0.25) ";
 $input = <STDIN>;
 if (trim($input) eq "")
 {
-    print $fh "report_thresh=1\n";
+    print $fh "filter_thresh=0.25\n";
 }
 else
 {
-    print $fh "report_thresh=" . trim($input) . "\n";
+    $r = trim($input);
+    print $fh "filter_thresh=" . $r . "\n";
 }
 
-print "If a signature were too broad, what level of collateral damage are you willing to tolerate? For example\n";
-print "out of every 100 flows dropped by the signature, how many would you tolerate to be legitimate flows? (default = 5) ";
+print "What is the smallest attack (in pps) you want to detect (>1, default = 1000) ";
 $input = <STDIN>;
 if (trim($input) eq "")
 {
-    print $fh "spec_thresh=0.05\n";
+    print $fh "min_oci=1000\n";
 }
 else
 {
-    $r = trim($input)/100;
-    print $fh "spec_thresh=" . $r . "\n";
+    $r = trim($input);
+    print $fh "min_oci=" . $r . "\n";
 }
 
+print $fh "cusum_thresh=30\n";
 print "\n\nConfiguration complete!\n";
 close($fh);
 

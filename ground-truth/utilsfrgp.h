@@ -30,31 +30,29 @@
 
 using namespace std;
 
-#define ADELAY 35
-#define NUMF 16                    // How many ways do we bin the traffic
-enum ways{LHOST, LPREF, FPORT, LPORT, LHFPORT, LHLPORT, LPFPORT, LPLPORT, LHSYN, LPSYN, LHSYNACK, LPSYNACK, LHACK, LPACK, LHRST, LPRST};
+#define NUMF 5                    // How many ways do we bin the traffic
+enum ways{FOR, LOC, LOCPREF, FPORT, LPORT};
 
-#define BRICK_UNIT 337            // How many bins we have. This should NOT be a power of 2
+#define BRICK_UNIT 701           // How many bins we have. This should NOT be a power of 2
 #define BRICK_DIMENSION NUMF*BRICK_UNIT // There are NUMF variants of how we can bin the traffic (e.g., by port, by dst IP, etc.)
 #define SIGTIME 1
 #define REPORT_THRESH 30
 #define MIN_FRESH 10              // have seen most of their records
 #define HMB 1.1                   // This is how much more a less specific signature should catch to be accepted
 #define MAXLINE 1024              // Maximum length for reading strings
-#define MM 10                     // Samples of flows that match a signature
+#define MM 5                      // Samples of flows that match a signature
 #define AR_LEN 30                 // How many delimiters may be in an array
 #define MAX_DIFF 10               // How close should a timestamp be to the one where attack is detected
-#define NF 20                     // Number of different signatures for a flow
+#define NF 16                     // Number of different signatures for a flow
 #define QSIZE 100                 // How many timestamps can I accumulate before processing
 
 #define SIG_FLOWS 100             // This many flows must be collected, at least, to evaluate a signature
-#define MIN_SAMPLES 0.1           // We must have samples for at least this fraction of training period to
+#define MIN_SAMPLES 0.5          // We must have samples for at least this fraction of training period to
                                   // roll over current stats into historical stats
 
 #define ALPHA 0.5                 // Constant for weighted average of filtering effectiveness
 #define EFF_THRESH 0.5            // If we're dropping less than this much traffic, we need a better signature
-enum protos {TCP=6, UDP=17, ICMP=1}; // Transport protocols we work with. We ignore other traffic
-enum flags {SYN=2, SYNACK=18, PUSH=8, PUSHACK = 24, RST=4, ACK=16}; // Flags we work with for detection of flag-specific attacks
+enum protos {TCP=6, UDP=17};      // Transport protocols we work with. We ignore other traffic
 
 
 
@@ -67,34 +65,25 @@ class DataBuf : public streambuf
   }
 };
 
-struct shuffle_cell
-{
-  int index;
-  unsigned int len;
-  unsigned int oci;
-};
-
 // 5-tuple for the flow
 class flow_t{
 
  public:
   unsigned int src;
-  short sport;
+  unsigned short sport;
   unsigned int dst;
-  short dport;
+  unsigned short dport;
   unsigned char proto;
-  int flags;
   int slocal;
   int dlocal;
   
   flow_t()
     {
       src = 0;
-      sport = -1;
+      sport = 0;
       dst = 0;
-      dport = -1;
-      proto = -1;
-      flags = 0;
+      dport = 0;
+      proto = 0;
       slocal = 0;
       dlocal = 0;
     }
@@ -121,17 +110,12 @@ class flow_t{
       {
 	return true;
       }
-    else if (src == rhs.src && sport == rhs.sport && dst == rhs.dst && dport == rhs.dport && proto == rhs.proto && flags < rhs.flags)
-      {
-	return true;
-      }
     else
       return false;
   }
   
   bool operator==(const flow_t& rhs) const
   {
-    // We don't compare flags since they have their separate bin
     return (src == rhs.src) && (dst == rhs.dst) && (sport == rhs.sport) && (dport == rhs.dport) && (proto == rhs.proto);
   }
 };
@@ -190,7 +174,7 @@ struct sample_p
 // Holds the samples for each bin
 struct sample
 {
-  sample_p* bins;
+  sample_p bins[BRICK_DIMENSION];
   long timestamp;
 };
 
@@ -207,14 +191,13 @@ struct sortbyFilename
 // Some function prototypes. Functions are defined in utils.cc
 int myhash(u_int32_t ip, unsigned short port, int way);
 int sgn(double x);
-bool bettersig(flow_t a, flow_t b);
+int bettersig(flow_t a, flow_t b);
 string printsignature(flow_t s);
 int loadservices(const char* fname);
 void loadprefixes(const char* fname);
-bool isservice(int port);
-bool islocal(u_int32_t ip);
+int isservice(int port);
+int islocal(u_int32_t ip);
 int zeros(flow_t f);
 unsigned int todec(string ip);
-bool empty(flow_t sig);
-string toip(unsigned int addr);
+
 #endif

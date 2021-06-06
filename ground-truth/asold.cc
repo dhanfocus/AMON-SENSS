@@ -63,7 +63,6 @@
 
 #define BILLION 1000000000L
 #define DAY 86400
-
 using namespace std;
 
 
@@ -75,12 +74,6 @@ int numattack = 0;
 // We store delimiters in this array
 int* delimiters;
 
-unsigned int max_shufflelen = 0;
-unsigned int max_shuffleoci = 0;
-
-map<unsigned int, struct shuffle_cell> memshuffle;
-extern vector<int> samplingrates;
-int shuffle_index = 0;
 
 // Something like strtok but it doesn't create new
 // strings. Instead it replaces delimiters with 0
@@ -107,10 +100,10 @@ int parse(char* input, char delimiter, int** array)
 // Variables/structs needed for detection
 struct cell
 {
-  long int *databrick_p;	 // databrick volume
-  long int *databrick_s;         // databrick symmetry 
-  unsigned int *wfilter_p;	 // volume w filter 
-  int *wfilter_s;	         // symmetry w filter 
+  long int databrick_p[BRICK_DIMENSION];	 // databrick volume
+  long int databrick_s[BRICK_DIMENSION];         // databrick symmetry 
+  unsigned int wfilter_p[BRICK_DIMENSION];	 // volume w filter 
+  int wfilter_s[BRICK_DIMENSION];	         // symmetry w filter 
 };
 
 // Should we require destination prefix
@@ -126,28 +119,25 @@ int cfront = 0;
 int crear = 0;
 bool cempty = true;
 
+bool is_live = false;
+
 // Samples of flows for signatures
 sample samples;
 
 // Signatures per bin
-stat_r *signatures;
+stat_r signatures[BRICK_DIMENSION];
 // Is the bin abnormal or not
-int *is_abnormal;
+int is_abnormal[BRICK_DIMENSION];
 // Did we detect an attack in this bin
-int *is_attack;
+int is_attack[BRICK_DIMENSION];
 // When we detected the attack
-unsigned long* detection_time;
+unsigned long detection_time[BRICK_DIMENSION];
 // Are we simulating filtering. 
 bool sim_filter = false;
 
 // Did we complete training
 bool training_done = false;
-bool shuffle_done = false;
-int BRICK_FINAL = 0;
-
-int shuffled = 0;
 int trained = 0;
-const int MAX_SHUFFLES = 100;
 
 // Current time
 double curtime = 0;
@@ -168,12 +158,6 @@ long statstime = 0;       // Time when we move the stats to history
 char filename[MAXLINE];   // A string to hold filenames
 struct timespec last_entry;
 
-// Is this pcap file or flow file? Default is flow
-bool is_pcap = false;
-bool is_live = false;
-bool is_nfdump = false;
-bool is_flowride = false;
-
 // Serialize access to statistics
 pthread_mutex_t cells_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t samples_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -184,8 +168,8 @@ pthread_mutex_t rst_lock = PTHREAD_MUTEX_INITIALIZER;
 enum period{cur, hist};
 enum type{n, avg, ss};
 enum dim{vol, sym};
-double* stats[2][3][2]; // historical and current stats for attack detection
-double* cusum[2];
+double stats[2][3][2][BRICK_DIMENSION]; // historical and current stats for attack detection
+double cusum[2][BRICK_DIMENSION];
 string label;
 
 // Parameters from as.config
@@ -301,8 +285,7 @@ parse_config(map <string,double>& parms, map <string,string>& sparms)
 // signature
 bool compliantsig(int i, flow_t sig)
 {
-  int loc = int(i/BRICK_FINAL);
-  switch (loc)
+  switch (i/BRICK_UNIT)
     {
     case 0:
     case 1:
@@ -310,11 +293,11 @@ bool compliantsig(int i, flow_t sig)
     case 2:
     case 4:
     case 5:
-      return (sig.dst != 0 && (sig.sport != -1|| sig.proto == ICMP));
+      return (sig.dst != 0 && (sig.sport != 0 || sig.proto == ICMP));
     case 3:
     case 6:
     case 7:
-      return (sig.dst != 0 && (sig.dport != -1 || sig.proto == ICMP));
+      return (sig.dst != 0 && (sig.dport != 0 || sig.proto == ICMP));
     case 8:
     case 9:
     case 10:
@@ -364,7 +347,8 @@ void addSample(int index, flow_p* f, int way)
 	k.dst = f->flow.dst;
       if ((s & 1) > 0 && isservice(f->flow.dport))
 	k.dport = f->flow.dport;
-
+      //if (index == 3493)
+      //cout<<"s="<<s<<printsignature(k)<<" sport "<<f->flow.sport<<endl;
       if (way == LHOST || way == LPREF || way == LHFPORT || way == LHLPORT || way == LPFPORT || way == LPLPORT || way == LHSYN || way == LPSYN || way == LHSYNACK || way == LPSYNACK || way == LHRST || way == LPRST)
 	{
 	  k.dst = f->flow.dst;
@@ -378,19 +362,27 @@ void addSample(int index, flow_p* f, int way)
       if (way >= LHSYN)
 	k.flags = f->flow.flags;
       
+      //if (index == 12205)
+      //cout<<"Add sample oci "<<f->oci<<" sig "<<printsignature(k)<<" way "<<way<<" s="<<s<<" current "<<printsignature(samples.bins[index].flows[s].flow)<<" len "<<samples.bins[index].flows[s].len<<" line "<<saveline<<" is attack "<<is_attack[index]<<endl;
+      // src, dst, sport, dport
       // Overload len so we can track frequency of contributions
+      // Jelena - there was continue here
       // Insert sample if it does not exist
       if (samples.bins[index].flows[s].flow == k)
 	{
 	  // Else increase contributions of this signature wrt symmetry
 	  samples.bins[index].flows[s].len += abs(f->oci);
 	  samples.bins[index].flows[s].oci += f->oci;
+	  // if (index == 12205)
+	  //cout<<"Added sample, now the len is "<<samples.bins[index].flows[s].len<<" we added "<<abs(f->oci)<<" line "<<saveline;
 	}
       else	
 	{
 	  // Boyer Moore to find signatures that cover the most flows
 	  if (empty(samples.bins[index].flows[s].flow))
 	    {
+	      // if (index == 12205)
+	      //cout<<"Added initial sample\n";
 	      samples.bins[index].flows[s].flow = k;
 	      samples.bins[index].flows[s].len = abs(f->oci);
 	      samples.bins[index].flows[s].oci = f->oci;
@@ -400,7 +392,8 @@ void addSample(int index, flow_p* f, int way)
 	      int olen = samples.bins[index].flows[s].len;
 	      samples.bins[index].flows[s].len -= abs(f->oci);
 	      int nlen = samples.bins[index].flows[s].len;
-	      
+	      //if (index == 12205)
+	      //	cout<<"Added sample, now the len is "<<samples.bins[index].flows[s].len<<" old len "<<olen<<" new len "<<nlen<<" we removed "<<abs(f->oci)<<" line "<<saveline;
 	      // Replace this signature if there's another one,
 	      // which covers more
 	      if (samples.bins[index].flows[s].len < 0)
@@ -411,6 +404,8 @@ void addSample(int index, flow_p* f, int way)
 		}
 	    }
 	}
+      //if (index == 9800)
+      //cout<<"Add sample, now the len is "<<samples.bins[index].flows[s].len<<" and sig "<<printsignature(samples.bins[index].flows[s].flow)<<endl;
       pthread_mutex_unlock(&samples_lock);
     }
 } 
@@ -448,6 +443,7 @@ int malformed(double timestamp)
   if (timestamp < firsttimeinfile-1 || (parms["file_interval"] > 0 && timestamp > firsttimeinfile +
 				      parms["file_interval"]))
     {
+      //cout<<"Malformed "<<timestamp<<" first time "<<firsttimeinfile-1<<endl;
       return 1;
     }
   return 0;
@@ -478,11 +474,23 @@ double abnormal(int type, int index, cell* c)
   
   double rto = tmp/(std+1);
 
+  //if (index == 13207)
+  //cout<<curtime<<" Cusum for type "<<type<<" data "<<data<<" mean "<<mean<<" std "<<std<<" is "<<cusum[type][index]<<" rto "<<rto<<endl;
   
   if (rto > 0)
     return rto;
   else
     return 0;
+  /* Volume larger than mean + num_std*stdev is abnormal 
+  if (data > mean + parms["num_std"]*std)
+    {
+      return 1;
+    }
+  else
+    {
+      return 0;
+    }
+  */
 }
 
 // Print alert into the alerts file
@@ -500,14 +508,11 @@ void print_alert(int i, cell* c, int na)
   
   // Write the start of the attack into alerts
   ofstream out;
-  
   if (abs(roci) < parms["min_oci"])
     return;
-  if (empty(signatures[i].sig))
-    return;
-
+  
   pthread_mutex_lock(&cnt_lock);
-
+  
   out.open("alerts.txt", std::ios_base::app);
   out<<na<<" "<<i/BRICK_UNIT<<" "<<(long)curtime<<" ";
   out<<"START "<<i<<" "<<abs(rate);
@@ -516,7 +521,7 @@ void print_alert(int i, cell* c, int na)
   out.close();
   
   // Save evidence of attack
-  if (false)  // Jelena put back
+  if (true) // Jelena put back
     {
       char filename[MAXLINE];
       sprintf(filename, "%s/attack%d", sparms["evids"].c_str(), na);
@@ -550,14 +555,19 @@ void alert_ready(cell* c, int bucket)
   double data = abs(c->databrick_s[bucket]);
   if (symb == 0)
     symb = 1;
-  if (symf/symb >= parms["filter_thresh"])
+  if (symf/symb >= parms["filter_thresh"]) // && abnormal(vol,bucket,c) && abnormal(sym,bucket,c))
     {
       pthread_mutex_lock(&cnt_lock);
       int na = numattack++;
       pthread_mutex_unlock(&cnt_lock);
+      cout<<curtime<<" event "<<na<<" Signature works for "<<bucket<<" wfilter "<<symf<<","<<volf<<" without "<<symb<<","<<volb<<" stored matches "<<signatures[bucket].nm<<printsignature(signatures[bucket].sig)<<endl;
       print_alert(bucket, c, na);
     }
-
+  else
+    {
+      //if (bucket == 9464)
+      cout<<curtime<<" matched enough for "<<bucket<<" but failed to filter enough, filtered "<<symf<<" out of "<<symb<<" abnormals "<<abnormal(vol,bucket,c)<<" and "<<abnormal(sym,bucket,c)<<" avgs "<<avgs<<" stds "<<stds<<" data "<<data<<endl;
+    }
   is_attack[bucket] = false;
   detection_time[bucket] = 0;
   clearSamples(bucket);
@@ -565,11 +575,9 @@ void alert_ready(cell* c, int bucket)
 
 void checkReady(int bucket, cell* c)
 {
-  
   if (signatures[bucket].nm < MM)
     {
       strcpy(signatures[bucket].matches[signatures[bucket].nm++], saveline);
-
       if (signatures[bucket].nm == MM)
 	{
 	  alert_ready(c, bucket);
@@ -642,9 +650,6 @@ void findBestSignature(double curtime, int i, cell* c)
       // insert signature and reset all the stats
       if (sim_filter)
 	{
-	  if(verbose)
-	    cout<<"Sim filter is on"<<endl;
-	  
 	  signatures[i].sig = bestsig;
 	  signatures[i].vol = 0;
 	  signatures[i].oci = 0;
@@ -681,7 +686,7 @@ void instant_detect(cell* c, double ltime, int i)
   double stds = sqrt(stats[hist][ss][sym][i]/(stats[hist][n][sym][i]-1));
   int volume = c->databrick_p[i];
   int asym = c->databrick_s[i];
-
+  
   if (!is_attack[i])
     {
       // If both volume and asymmetry are abnormal and training has completed
@@ -699,13 +704,13 @@ void instant_detect(cell* c, double ltime, int i)
 	  if (d > parms["max_oci"])
 	    d = parms["max_oci"];
 	  
-	  if (0 && a >= parms["cusum_thresh"] && b >= parms["cusum_thresh"])
+	  if (a >= parms["cusum_thresh"] && b >= parms["cusum_thresh"])
 	    is_abnormal[i] = int(parms["attack_high"]);
 	  else
 	    {
 	      is_abnormal[i] = a+b;
 	      if (is_abnormal[i] > int(parms["attack_high"]))
-		is_abnormal[i] = int(parms["attack_high"]); //Jelena used to be /2
+		is_abnormal[i] = int(parms["attack_high"])/2;
 	    }
 	  /*			 
 	  // Increase abnormal score, but cap at attack_high
@@ -715,8 +720,8 @@ void instant_detect(cell* c, double ltime, int i)
 	  is_abnormal[i] = int(parms["attack_high"]);
 	  */
 	  
-	  if (verbose && is_abnormal[i])
-	    cout<<std::fixed<<ltime<<" abnormal for "<<i<<" points "<<is_abnormal[i]<<" oci "<<c->databrick_s[i]<<" ranges " <<avgs<<"+-"<<stds<<", vol "<<c->databrick_p[i]<<" ranges " <<avgv<<"+-"<<stdv<<" over mean "<<d<<" a "<<a<<" b "<<b<<" cusum thresh " << parms["cusum_thresh"]<<endl;
+	  if (verbose)
+	    cout<<ltime<<" abnormal for "<<i<<" points "<<is_abnormal[i]<<" oci "<<c->databrick_s[i]<<" ranges " <<avgs<<"+-"<<stds<<", vol "<<c->databrick_p[i]<<" ranges " <<avgv<<"+-"<<stdv<<" over mean "<<d<<" a "<<a<<" b "<<b<<" cusum thresh " << parms["cusum_thresh"]<<endl;
 
 	  // If abnormal score is above attack_low
 	  // and oci is above MAX_OCI
@@ -737,91 +742,6 @@ void instant_detect(cell* c, double ltime, int i)
 }
 
 
-void print_bin(double time, cell* c, int i)
-{
-  double avgv = stats[hist][avg][vol][i];
-  double stdv = sqrt(stats[hist][ss][vol][i]/(stats[hist][n][vol][i]-1));
-  double avgs = stats[hist][avg][sym][i];
-  double stds = sqrt(stats[hist][ss][sym][i]/(stats[hist][n][sym][i]-1));
-  int volume = c->databrick_p[i];
-  int asym = c->databrick_s[i];
-}
-
-void malloc_all()
-{
-  for(int i=0; i<QSIZE; i++)
-    { 
-      cells[i].databrick_p = (long int*) malloc(BRICK_FINAL*sizeof(long int));
-      cells[i].databrick_s = (long int*) malloc(BRICK_FINAL*sizeof(long int));
-      cells[i].wfilter_p = (unsigned int*) malloc(BRICK_FINAL*sizeof(unsigned int));
-      cells[i].wfilter_s = (int*) malloc(BRICK_FINAL*sizeof(int));
-    }
-  signatures = (stat_r*) malloc(BRICK_FINAL*sizeof(stat_r));
-  is_abnormal = (int*) malloc(BRICK_FINAL*sizeof(int));
-  is_attack = (int*) malloc(BRICK_FINAL*sizeof(int));
-  detection_time = (unsigned long*) malloc(BRICK_FINAL*sizeof(unsigned long));
-  for(int i=0; i<2;i++)
-    for(int j=0; j<3; j++)
-      for(int k=0; k<2; k++)
-	stats[i][j][k] = (double*) malloc(BRICK_FINAL*sizeof(double));
-   for(int i=0; i<2;i++)
-     cusum[i] =  (double*) malloc(BRICK_FINAL*sizeof(double));
-   samples.bins = (sample_p*) malloc(BRICK_FINAL*sizeof(sample_p));
-}
-
-void shuffle(unsigned int addr, int len, int oci, unsigned int curtime)
-{
-  if (memshuffle.find(addr) == memshuffle.end())
-    {
-      shuffle_cell c;
-      c.len = len;
-      c.oci = oci;
-      memshuffle[addr] = c;
-    }
-  else
-    {
-      memshuffle[addr].len += len;
-      memshuffle[addr].oci += oci;
-    }
-  if (memshuffle[addr].len > max_shufflelen)
-    max_shufflelen = memshuffle[addr].len;
-  if (memshuffle[addr].oci > max_shuffleoci)
-    max_shuffleoci = memshuffle[addr].oci;
-
-  // If there are too many, delete all that are
-  // lower than 1/10 of the max
-  if (memshuffle.size() > BRICK_UNIT)
-    {
-      for (auto mit=memshuffle.begin(); mit != memshuffle.end(); )
-	{
-	  auto it = mit;
-	  if (mit->second.len < max_shufflelen/10000 && mit->second.oci < max_shuffleoci/10000)
-	    {
-	      mit++;
-	      memshuffle.erase(it);
-	    }
-	  else
-	    {
-	      mit++;
-	    }
-	}
-      shuffled++;
-      if (shuffled > MAX_SHUFFLES)
-	{
-	  shuffle_done = true;
-	  shuffle_index = memshuffle.size();
-	  int index = 0;
-	  for (auto mit=memshuffle.begin(); mit != memshuffle.end(); mit++)
-	    mit->second.index = index++;
-	  BRICK_FINAL = shuffle_index*NUMF+BRICK_DIMENSION;
-
-	  // Malloc everything
-	  malloc_all();
-	}
-    }
-}
-
-
 // Main function, which processes each flow
 void
 amonProcessing(flow_t flow, int len, double start, double end, int oci)
@@ -830,19 +750,16 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
   if (malformed(end))
     {
       mal++;
+      cout<<"Malformed "<<start<<" end "<<end<<endl;
       return;
     }
-  // Detect if it is UDP for port 443 or 4500 or 4501 or 80
-  // and don't use it. It's most likely legitimate.
-  if (flow.sport == 443 || flow.dport == 443 || flow.sport == 4500 || flow.dport == 4500 || flow.sport == 4501 || flow.dport == 4501 || flow.sport == 80 || flow.dport == 80)
-    return;
-  
   if (flow.proto == ICMP)
     {
       flow.sport = -2;
       flow.dport = -2;
     }
-
+  //cout<<"Flow from "<<flow.src<<":"<<flow.sport<<"->"<<flow.dst<<":"<<flow.dport<<endl;
+  // Standardize time
   if (curtime == 0)
     curtime = end;
   if ((unsigned long)end > (unsigned long)curtime)
@@ -872,15 +789,6 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 
   int is_filtered = false;
 
-  if (!shuffle_done)
-    {
-      if (flow.dlocal)
-	shuffle(flow.dst, len, oci, curtime);
-      else
-	shuffle(flow.src, len, oci, curtime);
-      return;
-    }
-	
   if (sim_filter)
     {
       for (int way = LHOST; way <= LPRST; way++) // SERV is included in CLI
@@ -897,6 +805,13 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 		      c->wfilter_p[d_bucket] += len;
 		      c->wfilter_s[d_bucket] += oci;
 		      checkReady(d_bucket,c);
+		      //if (d_bucket == 3493)
+		      //cout<<"Match filtering "<<printsignature(flow)<<" len "<<len<<" oci "<<oci<<" filtered "<<c->wfilter_p[d_bucket]<<" "<< c->wfilter_s[s_bucket]<<" start "<<start<<" end "<<end<<endl;
+		    }
+		  else
+		    {
+		      //if (d_bucket == 3493)
+		      //cout<<"Match not filtering "<<printsignature(flow)<<" start "<<start<<" end "<<end<<" score "<<is_abnormal[d_bucket]<<" oci "<<c->databrick_s[d_bucket]<<endl;
 		    }
 		}
 	    }
@@ -940,10 +855,6 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 		  else
 		    port = flow.dport;
 		  d_bucket = myhash(flow.dst, port, way);
-		  //if (d_bucket == 14365)
-		  //printf("%lf %lf: dst %ld flow bytes %d oci %d sport %d dport %d dbucket %d samples %lf\n", start, end, flow.dst, len, oci, flow.sport, flow.dport, d_bucket, stats[hist][n][sym][d_bucket]);
-		  if (d_bucket == 14365)
-		    print_bin(end, c, d_bucket);
 		  if (shouldFilter(d_bucket, flow, c))
 		    {
 		      is_filtered = true;
@@ -956,6 +867,11 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	}
     }
 
+  //  if (is_filtered)
+  //{
+  //  return;
+  //}
+
   vector<int> d_buckets, s_buckets;
   
   for (int way = LHOST; way <= LPRST; way++) 
@@ -967,7 +883,6 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic to LHOST/LPREF
 	      d_bucket = myhash(flow.dst, 0, way);
-
 	      if (way == LHSYN  || way == LPSYN)
 		if (flow.flags != SYN || flow.proto != TCP)
 		  continue;
@@ -1012,7 +927,8 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic from FPORT
 	      s_bucket = myhash(0, flow.sport, way);
-
+	      //if (flow.dst == 732944783 && flow.sport == 53)
+	      //cout<<"FPORT "<<s_bucket<<endl;
 	      c->databrick_p[s_bucket] += len;
 	      c->databrick_s[s_bucket] += oci;
 	      addSample(s_bucket, &fp, way);
@@ -1033,7 +949,8 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic to LPORT
 	      d_bucket = myhash(0, flow.dport, way);
-
+	      //if (flow.dst == 732944783 && flow.dport == 53)
+	      //cout<<"LPORT "<<d_bucket<<endl;
 	      c->databrick_p[d_bucket] += len;
 	      c->databrick_s[d_bucket] += oci;
 	      addSample(d_bucket, &fp, way);
@@ -1054,7 +971,9 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic from FPORT
 	      s_bucket = myhash(flow.dst, flow.sport, way);
-	      
+	      //if (flow.dst == 732944783 && flow.sport == 53)
+	      //cout<<"LHFPORT "<<s_bucket<<endl;
+
 	      c->databrick_p[s_bucket] += len;
 	      c->databrick_s[s_bucket] += oci;
 	      addSample(s_bucket, &fp, way);
@@ -1064,7 +983,8 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic to FPORT
 	      d_bucket = myhash(flow.src, flow.dport, way);
-
+	      //if (d_bucket == 13207)
+	      //cout<<d_bucket<<" Now is "<< c->databrick_s[d_bucket]<<endl;
 	      c->databrick_p[d_bucket] -= len;
 	      c->databrick_s[d_bucket] -= oci;
 	      instant_detect(c, curtime, d_bucket);
@@ -1076,7 +996,8 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic to LPORT
 	      d_bucket = myhash(flow.dst, flow.dport, way);
-
+	      //if (flow.dst == 732944783 && flow.dport == 53)
+	      //cout<<"LHLPORT "<<d_bucket<<endl;
 	      c->databrick_p[d_bucket] += len;
 	      c->databrick_s[d_bucket] += oci;
 	      addSample(d_bucket, &fp, way);
@@ -1098,10 +1019,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 // Update statistics
 void update_stats(cell* c)
 {
-  if (!shuffle_done)
-    return;
-    
-  for (int i=0;i<BRICK_FINAL;i++)
+  for (int i=0;i<BRICK_DIMENSION;i++)
     {
       for (int j=vol; j<=sym; j++)
 	{
@@ -1116,7 +1034,6 @@ void update_stats(cell* c)
 	    {
 	      // Update avg and ss incrementally
 	      stats[cur][n][j][i] += 1;
-	      
 	      if (stats[cur][n][j][i] == 1)
 		{
 		  stats[cur][avg][j][i] =  data;
@@ -1146,7 +1063,7 @@ void update_stats(cell* c)
      
       for (int x = ss; x >= n; x--)
 	for (int j = vol; j <= sym; j++)
-	  for(int i = 0; i<BRICK_FINAL; i++)
+	  for(int i = 0; i<BRICK_DIMENSION; i++)
 	  {
 	    // Check if we have enough samples.
 	    // If the attack was long maybe we don't
@@ -1163,11 +1080,12 @@ void update_stats(cell* c)
     }
 }
 
+
 // This function detects an attack
 void detect_attack(cell* c, double ltime)
 {
   // For each bin
-  for (int i=0;i<BRICK_FINAL;i++)
+  for (int i=0;i<BRICK_DIMENSION;i++)
     {
       // Pull average and stdev for volume and symmetry
       double avgv = stats[hist][avg][vol][i];
@@ -1196,7 +1114,7 @@ void detect_attack(cell* c, double ltime)
 	    cusum[type][i] = 0;
 	}
       
-      if (verbose & 0) // Block it temporarily
+      if (verbose) // Block it temporarily
 	{
 	  ofstream out;
 	  char filename[200];
@@ -1208,6 +1126,7 @@ void detect_attack(cell* c, double ltime)
 	    lastlogtime = ltime;
 	  if (ltime - lastlogtime >= DAY)
 	    {
+	      //system("./mvlogs");
 	      lastlogtime = curtime;
 	    }
 	}
@@ -1223,6 +1142,7 @@ void detect_attack(cell* c, double ltime)
 	      double diff = ltime - detection_time[i];
 	      if (diff >= ADELAY)
 		{
+		  cout<<ltime<<" not matched enough for "<<i<<endl;
 		  is_attack[i] = false;
 		  detection_time[i] = 0;
 		  clearSamples(i);
@@ -1249,7 +1169,7 @@ void detect_attack(cell* c, double ltime)
 	
 // Read pcap packet format
 void
-amonProcessingPcap(u_char* p, struct pcap_pkthdr *h,  double time) // (pcap_pkthdr* hdr, u_char* p, double time)
+amonProcessingPcap (pcap_pkthdr* hdr, u_char* p, double time)
 {
   // Start and end time of a flow are just pkt time
   double start = time;
@@ -1304,6 +1224,8 @@ amonProcessingFlowride(char* line, double start)
 {
   /* 1576613068700777885	ICMP	ACTIVE	x	129.82.138.44	46.167.131.0	0	0	1	0	60	0	0	8	0	1	0	60	0	1576613073700960814 */
   // Line is already parsed
+  strcpy(saveline, line);
+  int dl = parse(line,'\t', &delimiters);
   char send[MAXLINE], rend[MAXLINE];
   strncpy(send, line+delimiters[18],10);
   send[10] = 0;
@@ -1321,8 +1243,7 @@ amonProcessingFlowride(char* line, double start)
 
   // Hack for Flowride
   // assume 5 second interval for reports
-  if (dur > 5)
-    dur = 5;
+  dur = 5;
   
   int pkts, bytes, rpkts, rbytes, pktsdir, pktsrev;
 
@@ -1333,6 +1254,8 @@ amonProcessingFlowride(char* line, double start)
     proto = UDP;
   else if (strcmp(line+delimiters[0], "TCP") == 0)
     proto = TCP;
+  else if (strcmp(line+delimiters[0], "ICMP") == 0)
+    proto = ICMP;
   else
     proto = 0;
 
@@ -1348,7 +1271,6 @@ amonProcessingFlowride(char* line, double start)
   pktsdir = atoi(line+delimiters[14]);
   pktsrev = atoi(line+delimiters[15]);
   // Closed flow, no need to do anything
-
   if (pktsdir == 0 && pktsrev == 0)
     return;
   processedbytes+=pbytes;
@@ -1361,15 +1283,14 @@ amonProcessingFlowride(char* line, double start)
     }
   l++;
   int flags = atoi(line+delimiters[11]);
+  flow.flags = flags;
   int ppkts = atoi(line+delimiters[14]);
   rpkts = atoi(line+delimiters[15]);
-  pkts = (int)(ceil(ppkts/dur));
-  bytes = (int)(ceil(pbytes/dur));
-  rpkts = (int)(ceil(rpkts/dur));
-  rbytes = (int)(ceil(rbytes/dur));
-
-  //if (flow.dst == 2225276007)
-  //printf("%lf %lf: FF bytes %d (%d) pkts %d (%d) sport %d dport %d\n", start, end, bytes, pbytes, pkts, ppkts, flow.sport, flow.dport);
+  pkts = (int)(ppkts/dur);
+  bytes = (int)(pbytes/dur);
+  rpkts = (int)(rpkts/dur);
+  rbytes = (int)(rbytes/dur);
+  //cout<<" pkts "<<pkts<<" rpkts "<<endl;
   /* Is this outstanding connection? For TCP, connections without 
      PUSH are outstanding. For UDP, connections that have a request
      but not a reply are outstanding. Because bidirectional flows
@@ -1378,28 +1299,11 @@ amonProcessingFlowride(char* line, double start)
      TCP we use 0 (there is a PUSH) or 1 (no PUSH) and for UDP/ICMP we 
      use +1. */
   int oci, roci = 0;
+
   if (proto == TCP)
     {
-      // Jelena: Temp ad-hoc fix for Flowride
-      // fake a PSH flag for bunch of inc. cases
-      if (pkts > 0 && bytes/pkts > 100)
-	{
-	  flags = flags | 8;
-	}
-      if (rpkts > 0 && rbytes/rpkts > 100)
-	{
-	  flags = flags | 8;
-	}
-      if (flags == 16)
-	{
-	  flags = flags | 8;
-	}
-      if ((flags & 1) > 0)
-	{
-	  flags = flags | 8;
-	}
-      // There is a PUSH flag
-      if ((flags & 8) > 0)
+      // There is a PUSH flag or just ACK
+      if ((flags & 8) > 0 || (flags == 16))
 	{
 	  oci = 0;
 	  roci = 0;
@@ -1410,22 +1314,20 @@ amonProcessingFlowride(char* line, double start)
 	  roci = rpkts;
 	}
     }
-  else if (proto == UDP)
+  else if (proto == UDP || proto == ICMP)
     {
       oci = pkts;
       roci = rpkts;
     }
   else
-    // unknown proto
-    {
-      oci = pkts;
-      roci = rpkts;
-    }
-  // Don't deal with TCP flows w PUSH flags // Jelena should say "unless they have RST flags"
+    return;
+  
+  // Don't deal with TCP flows w PUSH flags 
   if (oci == 0)
     return;
 
   amonProcessing(flow, bytes, start, end, oci);
+  
   // Now account for reverse flow too, if needed
   if (rbytes > 0)
     {
@@ -1437,10 +1339,9 @@ amonProcessingFlowride(char* line, double start)
       rflow.proto = flow.proto;
       rflow.slocal = flow.dlocal;
       rflow.dlocal = flow.slocal;
-      
+      rflow.flags = flow.flags;
       amonProcessing(rflow, rbytes, start, end, roci);
     }
-  
 }
 
 // Read nfdump flow format
@@ -1488,10 +1389,32 @@ void amonProcessingNfdump (char* line, double time)
 
   pkts = atoi(line+delimiters[21]);
 
-  // Get the rate
+  // This is where sampling would be handled
+  int minpkts, minbytes;
+  
+  // Hack for FRGP
+  if (pkts % 100 == 0)
+    {
+      minpkts = 100;
+      minbytes = bytes/(pkts/100);
+    }
+  else
+    {
+      minpkts = 4096;
+      minbytes = bytes/(pkts/4096+1);
+    }
+  
   pkts = (int)(pkts/(dur+1))+1;
   bytes = (int)(bytes/(dur+1))+1;
+
+  if (pkts < minpkts)
+    {
+      pkts = minpkts;
+      bytes = minbytes;
+    }
+  // End of hack for FRGP
   
+  //cout<<std::fixed<<"Jelena "<<start<<" "<<end<<" "<<pkts<<" "<<bytes<<endl;
   /* Is this outstanding connection? For TCP, connections without 
      PUSH are outstanding. For UDP, connections that have a request
      but not a reply are outstanding. Because bidirectional flows
@@ -1534,7 +1457,7 @@ void *reset_transmit (void* lt)
   
   // Serialize access to cells
   pthread_mutex_lock (&cells_lock);
-
+  //cout<<"RS locked - will work on "<<cfront<<" c is "<<(&cells[cfront])<<"\n";
 
   lasttime = curtime;
   // We will process this one now
@@ -1550,6 +1473,7 @@ void *reset_transmit (void* lt)
 
   
   cell* c = &cells[current];
+  //cout<<"RS unlocked front "<<cfront<<" rear "<<crear<<" current "<<current<<" address "<<c<<"\n";
   
   // Check if there is an attack that was waiting
   // a long time to be reported. Perhaps we had too specific
@@ -1558,9 +1482,9 @@ void *reset_transmit (void* lt)
 
   if (training_done)
     detect_attack(c, ltime);
-  
   update_stats(c);
 
+  std::cout.precision(5);
 
   // Now note that you're done
   pthread_mutex_lock (&rst_lock);
@@ -1582,7 +1506,7 @@ void save_history()
       out<<numattack<<endl;
       for (int t=cur; t<=hist; t++)
 	{
-	  for (int i=0;i<BRICK_FINAL;i++)
+	  for (int i=0;i<BRICK_DIMENSION;i++)
 	    {
 	      for (int j=vol; j<=sym; j++)
 		{
@@ -1606,7 +1530,7 @@ void load_history()
       in>>numattack;
       for (int t=cur; t<=hist; t++)
         {
-          for (int i=0;i<BRICK_FINAL;i++)
+          for (int i=0;i<BRICK_DIMENSION;i++)
             {
               for (int j=vol; j<=sym; j++)
                 {
@@ -1644,6 +1568,72 @@ printHelp (void)
 }
 
 
+/*
+// File or stream processing function
+void processLine(std::function<void(char*, double)> func, int num_pkts, char* line, double epoch, double& start)
+{  
+  //cout<<"Processing "<<line<<endl; // Jelena
+  // For now, if this is IPv6 flow ignore it
+  if (strstr(line, ":") != 0)
+    return;
+  num_pkts++;
+  if (firsttimeinfile == 0)
+    firsttimeinfile = epoch;
+  allflows++;
+  processedflows++;
+  if (allflows == INT_MAX)
+    allflows = 0;
+  if (allflows % 1000000 == 0)
+    {
+      double diff = time(0) - start;
+      cout<<"Processed "<<allflows<<", 1M in "<<diff<<" curtime "<<curtime<<" last "<<lasttime<<" epoch "<<epoch<<endl;
+      start = time(0);
+    }
+  // Each second
+  int diff = curtime - lasttime;
+  if (curtime - lasttime >= 1) 
+    {
+      pthread_mutex_lock (&cells_lock);
+      cout<<std::fixed<<"Done "<<time(0)<<" curtime "<<curtime<<" lasttime "<<lasttime<<" flows "<<processedflows<<" lastbintime "<<lastbintime<<endl;
+      // This one we will work on next
+      crear = (crear + 1)%QSIZE;
+      if (crear == cfront && !cempty)
+	{
+	  perror("QSIZE is too small\n");
+	  exit(1);
+	}
+      // zero out stats
+      cell* c = &cells[crear];
+      //cout<<"Zeroing cell "<<crear<<" address "<<c<<endl;
+      memset(c->databrick_p, 0, BRICK_DIMENSION*sizeof(long int));
+      memset(c->databrick_s, 0, BRICK_DIMENSION*sizeof(long int));
+      memset(c->wfilter_p, 0, BRICK_DIMENSION*sizeof(unsigned int));
+      memset(c->wfilter_s, 0, BRICK_DIMENSION*sizeof(int));	  
+      // and it will soon be full
+      cempty = false;
+      pthread_mutex_unlock (&cells_lock);
+
+      // If the previous reset didn't finish, cannot create new one
+      while (true)
+	{
+	  pthread_mutex_lock (&rst_lock);
+	  int rst = resetrunning;
+	  pthread_mutex_unlock (&rst_lock);
+	  if (!rst)
+	    break;
+	  usleep(1);
+	}
+      
+      pthread_t thread_id;
+      pthread_create (&thread_id, NULL, reset_transmit, NULL);
+      pthread_detach(thread_id);
+      processedflows = 0;
+      lasttime = curtime;
+    }
+  func(line, start);
+}
+*/
+
 // Define the function to be called when ctrl-c (SIGINT) is sent to process
 void signal_callback_handler(int signum) {
    cout << "Caught signal " << signum << endl;
@@ -1653,9 +1643,9 @@ void signal_callback_handler(int signum) {
 }
 
 // Read one line from file according to format
-double read_one_line(void* nf, char* format, char* line, u_char* p,  struct pcap_pkthdr *h)
+double read_one_line(void* nf, char* format, char* line)
 {
-  if (!strcmp(format, "nf") || !strcmp(format, "ft") || !strcmp(format,"fr"))
+  if (!strcmp(format, "nf") || !strcmp(format, "ft"))
     {
       char* s = fgets(line, MAXLINE, (FILE*) nf);
       if (s == NULL)
@@ -1663,54 +1653,35 @@ double read_one_line(void* nf, char* format, char* line, u_char* p,  struct pcap
 
       char tmpline[MAXLINE];
       strcpy(tmpline, line);
-      if (!strcmp(format, "nf") || !strcmp(format, "ft"))
-	{
-	  if (strstr(tmpline, "|") == NULL)
-	    return 0;
-	  int dl = parse(tmpline,'|', &delimiters);
-	  double epoch = strtol(tmpline+delimiters[0],NULL,10);
-	  int msec = atoi(tmpline+delimiters[1]);
-	  epoch = epoch + msec/1000.0;
-	  return epoch;
-	}
-      else {
-	int dl = parse(line,'\t', &delimiters);
-	if (dl != 19)
-	  return 0;
-	
-	char sstart[MAXLINE], rstart[MAXLINE];
-	strncpy(sstart, line+delimiters[18],10);
-	sstart[10] = 0;
-	strncpy(rstart, line+delimiters[18]+10,9);
-	rstart[9] = 0;
-	double epoch = (double)atoi(sstart)+(double)atoi(rstart)/1000000000;
-	return epoch;
-      }
-    }
-  else if (!strcmp(format,"pcap") || !strcmp(format,"plive"))
-    {
-      int rc = pcap_next_ex((pcap_t*)nf, &h, (const u_char **) &p);
-      if (rc <= 0)
+      if (strstr(tmpline, "|") == NULL)
 	return 0;
-      struct ether_header* eth_header = (struct ether_header *) p;
-      
-      if (ntohs(eth_header->ether_type) != ETHERTYPE_IP) 
-	return 0;
-      double epoch = h->ts.tv_sec + h->ts.tv_usec/1000000.0;
+      int dl = parse(tmpline,'|', &delimiters);
+      double epoch = strtol(tmpline+delimiters[0],NULL,10);
+      int msec = atoi(tmpline+delimiters[1]);
+      epoch = epoch + msec/1000.0;
       return epoch;
+    }
+  if (!strcmp(format, "fr"))
+    {
+       char* s = fgets(line, MAXLINE, (FILE*) nf);
+       if (s == NULL)
+	 return -1;
+       char tmpline[MAXLINE];
+       strcpy(tmpline, line);
+       int dl = parse(tmpline,'\t', &delimiters);
+       double epoch = (double)strtol(tmpline+delimiters[18], NULL, 10)/1000000000;
+       return epoch;
     }
   //Jelena add more formats
   return 0;
 }
 
-void process_one_line(char* line, void* nf, double epoch, char* format, u_char* p, struct pcap_pkthdr *h)
+void amonProcess(char* line, double epoch, char* format)
 {
   if (!strcmp(format, "nf") || !strcmp(format, "ft"))
     amonProcessingNfdump (line, epoch);
-  else if (!strcmp(format, "fr"))
+  if (!strcmp(format, "fr"))
     amonProcessingFlowride (line, epoch);
-  else if (!strcmp(format, "pcap"))
-    amonProcessingPcap(p, h, epoch);
   // add more formats
 }
 
@@ -1722,9 +1693,7 @@ void read_from_file(void* nf, char* format)
   double epoch;
   int num_pkts = 0;
   double start = time(0);
-  u_char* p;
-  struct pcap_pkthdr *h;
-  while ((epoch = read_one_line(nf, format, line, p, h)) != -1)
+  while ((epoch = read_one_line(nf, format, line)) != -1)
     {
       if (epoch == 0)
 	continue;
@@ -1746,6 +1715,7 @@ void read_from_file(void* nf, char* format)
 	{
 	  pthread_mutex_lock (&cells_lock);
 	  lastbintime = curtime;
+	  cout<<std::fixed<<"Done "<<time(0)<<" curtime "<<curtime<<" lasttime "<<lasttime<<" flows "<<processedflows<<endl;
 	  
 	  // This one we will work on next
 	  crear = (crear + 1)%QSIZE;
@@ -1756,10 +1726,10 @@ void read_from_file(void* nf, char* format)
 	    }
 	  // zero out stats
 	  cell* c = &cells[crear];
-	  memset(c->databrick_p, 0, BRICK_FINAL*sizeof(long int));
-	  memset(c->databrick_s, 0, BRICK_FINAL*sizeof(long int));
-	  memset(c->wfilter_p, 0, BRICK_FINAL*sizeof(unsigned int));
-	  memset(c->wfilter_s, 0, BRICK_FINAL*sizeof(int));
+	  memset(c->databrick_p, 0, BRICK_DIMENSION*sizeof(long int));
+	  memset(c->databrick_s, 0, BRICK_DIMENSION*sizeof(long int));
+	  memset(c->wfilter_p, 0, BRICK_DIMENSION*sizeof(unsigned int));
+	  memset(c->wfilter_s, 0, BRICK_DIMENSION*sizeof(int));
 	  // and it will soon be full
 	  cempty = false;
 	  pthread_mutex_unlock (&cells_lock);
@@ -1770,7 +1740,7 @@ void read_from_file(void* nf, char* format)
 	  processedflows = 0;
 	  lasttime = curtime;
 	}
-      process_one_line(line, nf, epoch, format, p, h);
+      amonProcess(line, epoch, format);
     }
 }
 
@@ -1778,12 +1748,6 @@ void read_from_file(void* nf, char* format)
 int main (int argc, char *argv[])
 {  
   delimiters = (int*)malloc(AR_LEN*sizeof(int));
-
-  // Touch alerts file
-  ofstream out;
-  out.open("alerts.txt", std::ios_base::out);
-  out<<"#attackID intID start-time bin bytes packets signature\n";
-  out.close();
   
   char c, buf[32];
   char *file_in = NULL;
@@ -1844,8 +1808,8 @@ int main (int argc, char *argv[])
   cout<<"Verbose "<<verbose<<endl;
   numservices = loadservices("services.txt");
   loadprefixes("localprefs.txt");
-  memset(is_attack, 0, BRICK_FINAL*sizeof(int));
-  memset(is_abnormal, 0, BRICK_FINAL*sizeof(int));
+  memset(is_attack, 0, BRICK_DIMENSION*sizeof(int));
+  memset(is_abnormal, 0, BRICK_DIMENSION*sizeof(int));
   // Parse configuration
   parse_config(parms, sparms);
   // Load service port numbers
@@ -1930,6 +1894,7 @@ int main (int argc, char *argv[])
 	started = 0;
       double start = time(0);
       // Go through tracefiles and read each one
+      // Jelena: should delete after reading
       cout<<"Format is "<<format<<endl;
       for (vector<string>::iterator vit=tracefiles.begin(); vit != tracefiles.end(); vit++)
       {
