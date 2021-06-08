@@ -67,6 +67,9 @@
 #define MINV 1.1
 #define MINS 3600
 #define THRESH 10
+#define DUR 120
+#define PKTS 1000
+#define SRCS 5
 #define NUMSTD 3
 #define LIMITSIZE 100
 
@@ -318,6 +321,10 @@ double read_one_line(void* nf, char* line)
 	  else
 	    b.tag = 0;
 
+	  if (b.flows < PKTS)
+	    continue;
+	  if (b.srcs < SRCS)
+	    continue;
 	  if (b.tag == 7 || b.tag == 5 || b.tag == 3)
 	    {
 	      if (attacks.find(ip) == attacks.end())
@@ -337,11 +344,8 @@ double read_one_line(void* nf, char* line)
 		  found = true;
 		  if (attacks[ip].rate < b.flows)
 		    {
-		      cout<<"Updating rate "<<attacks[ip].rate<<" flow "<<b.flows<<endl;
 		      attacks[ip].rate = b.flows;
-		      
 		    }
-		  cout<<time<<" IP "<<toip(ip)<<" rate "<<attacks[ip].rate<<" vol "<<b.vol<<" flows " <<b.flows<<" attack rate "<<attacks[ip].rate<<endl;
 		  attacks[ip].gap = 0;
 		  attacks[ip].end = time;
 		}
@@ -351,9 +355,9 @@ double read_one_line(void* nf, char* line)
 	{
 	  int diff = time - attacks[ip].ltime;
 	  attacks[ip].gap += diff;
-	  if (attacks[ip].gap >= 2*THRESH)
+	  if (attacks[ip].gap >= DUR)
 	    {
-	      if (attacks[ip].dur >= THRESH)
+	      if (attacks[ip].dur >= DUR)
 		{
 		  int tt = 0;
 		  cout<<"Attack on "<<toip(ip)<<" from "<<attacks[ip].start<<" to "<<attacks[ip].end<<" dur "<<attacks[ip].dur<<" rate "<<attacks[ip].rate<<" types ";
@@ -394,9 +398,9 @@ double read_one_line(void* nf, char* line)
 	  if (attacks.find(ip) != attacks.end())
 	    {
 	      attacks[ip].gap++;
-	      if (attacks[ip].gap >= 2*THRESH)
+	      if (attacks[ip].gap >= DUR)
 		{
-		  if (attacks[ip].dur >= THRESH)
+		  if (attacks[ip].dur >= DUR)
 		    {
 		      int tt = 0;
 		      cout<<"Attack on "<<toip(ip)<<" from "<<attacks[ip].start<<" to "<<attacks[ip].end<<" dur "<<attacks[ip].dur<<" rate "<<attacks[ip].rate<<" types ";
@@ -435,10 +439,10 @@ void read_from_file(void* nf, char* format)
   for (auto it = attacks.begin(); it != attacks.end(); it++)
     {
       unsigned int ip = it->first;
-      if (attacks[ip].dur >= THRESH)
+      if (attacks[ip].dur >= DUR)
 	{
 	  int tt = 0;
-	  cout<<"Attack on "<<toip(ip)<<" from "<<attacks[ip].start<<" to "<<attacks[ip].end<<" dur "<<attacks[ip].dur<<" types ";
+	  cout<<"Attack on "<<toip(ip)<<" from "<<attacks[ip].start<<" to "<<attacks[ip].end<<" dur "<<attacks[ip].dur<<" rate "<<attacks[ip].rate<<" types ";
 	  for (auto at=attacks[ip].atypes.begin(); at != attacks[ip].atypes.end(); at++)
 	    {
 	      tt = tt | tagmap[*at];

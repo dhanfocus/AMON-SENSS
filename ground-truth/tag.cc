@@ -65,15 +65,16 @@
 #define BILLION 1000000000L
 #define DAY 86400
 #define MINV 1.1
-#define MINS 500
-#define THRESH 5
+#define MINS 3600
+#define THRESH 20
 #define NUMSTD 3
-#define LIMITSIZE 70
+#define LIMITSIZE 1
 
 using namespace std;
 
 
 // Global variables
+double lambda = 2;
 bool resetrunning = false;
 char saveline[MAXLINE];
 int numattack = 0;
@@ -112,13 +113,17 @@ map <celltype, int> allowed;
 struct ccell{
   int max;
   double mean;
+  double sum;
   double ss;
+  double stdev;
   double cusum;
+  double last;
 };
   
 struct record {
-  int n;
+  double n;
   unsigned int stime;
+  unsigned int ltime;
   map<celltype, ccell> records;
 };
 
@@ -375,7 +380,7 @@ double read_one_line(void* nf, char* line)
     return 0;
 }
 
-void calc_cusum(unsigned int ip, enum type t, struct bcell value)
+void calc_cusum(unsigned int ip, enum type t, struct bcell value, unsigned int time)
 {
   for (enum celltype ct = SRC; ct <= FLOW; ct=(enum celltype)((int)ct+ 1))
     {
@@ -387,26 +392,35 @@ void calc_cusum(unsigned int ip, enum type t, struct bcell value)
       else
 	data = value.flows;
 
-      if(metrics[ip][t].n > 1)
+      if(time - metrics[ip][t].stime >= MINS)
 	{
-	  double std = sqrt(metrics[ip][t].records[ct].ss/(metrics[ip][t].n-1));
-	  double tmp = metrics[ip][t].records[ct].cusum + (data - metrics[ip][t].records[ct].mean)/std;
+	  double std = metrics[ip][t].records[ct].stdev;
+	  if (std == 0)
+	    std = 1;
+	  double tmp = metrics[ip][t].records[ct].cusum + (data - metrics[ip][t].records[ct].last)/std;
+	  //cout<<"ctype "<<t<<" ct "<<ct<<" Calculating cusum time "<<time<<" old value "<<metrics[ip][t].records[ct].cusum<<" new data "<<data<<" old data "<< metrics[ip][t].records[ct].last<<" std "<<std<<" samples "<<metrics[ip][t].n<<" new value "<<tmp<<endl;
+	  metrics[ip][t].records[ct].cusum = tmp;
 	  if (tmp > 0)
 	    {
-	      metrics[ip][t].records[ct].cusum = tmp;
 	      if (metrics[ip][t].records[ct].cusum > 2*THRESH)
 		  metrics[ip][t].records[ct].cusum = 2*THRESH;
 	    }
 	  else
 	    {
-	      metrics[ip][t].records[ct].cusum = 0;
+	      if (metrics[ip][t].records[ct].cusum < -2*THRESH)
+		  metrics[ip][t].records[ct].cusum = -2*THRESH;
 	    }
-	}
+	  if (metrics[ip][t].records[ct].cusum < THRESH)
+	    metrics[ip][t].records[ct].last = data;
+	}      
     }
 }
 
 void update_means(unsigned int ip, enum type t, struct bcell value, unsigned int time)  
 {
+  double diff =  (double)metrics[ip][t].ltime - (double)time;
+  double age = pow(2, lambda*diff);
+  //cout<<"Ltime "<< metrics[ip][t].ltime<<" time "<<time<<" diff "<<diff<<" age "<<age<<endl;
   // Check if abnormal
   int tag = 0;
 
@@ -423,17 +437,17 @@ void update_means(unsigned int ip, enum type t, struct bcell value, unsigned int
 
       double std = 0;
       if (metrics[ip][t].records[ct].ss > 0)
-	std = sqrt(metrics[ip][t].records[ct].ss/(metrics[ip][t].n-1));
-      cout<<"IP "<<ip<<" time "<<time<<" type "<<t<<" ct "<<ct<<" value "<<data<<" samples "<<metrics[ip][t].n<<" max "<<metrics[ip][t].records[ct].max<<" mean "<<metrics[ip][t].records[ct].mean<<" std "<<std<<" cusum "<< metrics[ip][t].records[ct].cusum;
-      if (metrics[ip][t].records[ct].cusum <= THRESH || metrics[ip][t].n < MINS || data <= MINV*metrics[ip][t].records[ct].max || data <= allowed[ct])
+	std = metrics[ip][t].records[ct].stdev;
+      //cout<<"IP "<<ip<<" time "<<time<<" type "<<t<<" ct "<<ct<<" value "<<data<<" samples "<<metrics[ip][t].n<<" max "<<metrics[ip][t].records[ct].max<<" mean "<<metrics[ip][t].records[ct].mean<<" std "<<std<<" cusum "<< metrics[ip][t].records[ct].cusum;
+      if (metrics[ip][t].records[ct].cusum <= THRESH)
 	{
-	  cout<<" normal , n is "<<metrics[ip][t].n <<"\n";
+	  //cout<<" normal , n is "<<metrics[ip][t].n <<"\n";
 	}
       else
 	{
 	  //cout<<" anomalous\n";
 	  // Tag as abnormal
-	  cout<<ip<<" "<<t<<" "<<ct<<" anomalous \n";
+	  //cout<<ip<<" "<<t<<" "<<ct<<" anomalous \n";
 	  tag = tag | (int)pow(2,(int)ct);
 	  //cout<<"Anomalous ip "<<ip<<" type "<<t<<" measure "<<ct<<" time "<<time<<" cusum "<< metrics[ip][t].records[ct].cusum<<" data "<<data<<endl;
 	}
@@ -441,10 +455,16 @@ void update_means(unsigned int ip, enum type t, struct bcell value, unsigned int
   if (tag > 0)
     {
       stats[ip].statsdata[time].data[t].tag = tag;
-      cout<<"IP "<<ip<<" time "<<time<<" type "<<t<<" tag "<<tag<<endl;
+      //cout<<"IP "<<ip<<" time "<<time<<" type "<<t<<" tag "<<tag<<endl;
     }
   else
     {
+      double oldn = metrics[ip][t].n;
+      // Age count
+      //cout<<"Updating n from "<<metrics[ip][t].n<<" age "<<age<<" new n ";
+      metrics[ip][t].n *= age;
+      metrics[ip][t].n += 1;
+      //cout<<metrics[ip][t].n<<" type "<<t<<" srcs "<<value.srcs<<" vol "<<value.vol<<" flows "<<value.flows<<endl;
       for (enum celltype ct = SRC; ct <= FLOW; ct=(enum celltype)((int)ct+ 1))
 	{
 	  double data;
@@ -456,26 +476,38 @@ void update_means(unsigned int ip, enum type t, struct bcell value, unsigned int
 	    data = value.flows;
 	  
 	  
-      	  if (metrics[ip][t].n == 1)
+	  if (oldn == 0)
 	    {
 	      metrics[ip][t].records[ct].mean =  data;
-	      metrics[ip][t].records[ct].ss = 0;
+	      metrics[ip][t].records[ct].sum =  data;
+	      metrics[ip][t].records[ct].ss = data*data;
+	      metrics[ip][t].records[ct].stdev = 0.1;
 	    }
 	  else
 	    {
-	      double ao = metrics[ip][t].records[ct].mean;
-	      metrics[ip][t].records[ct].mean = metrics[ip][t].records[ct].mean +
-		(data - metrics[ip][t].records[ct].mean)/metrics[ip][t].n;
-	      metrics[ip][t].records[ct].ss = metrics[ip][t].records[ct].ss +
-		(data - ao)*(data - metrics[ip][t].records[ct].mean);
+	      // cout<<"type "<<t<<" ct "<<ct<<" Sum is "<<metrics[ip][t].records[ct].sum<<" aged and added "<<data<<" new sum ";
+	      
+	      metrics[ip][t].records[ct].sum *= age;
+	      metrics[ip][t].records[ct].ss *= age;
+
+	      metrics[ip][t].records[ct].sum += data;
+	      //cout<<metrics[ip][t].records[ct].sum<<" n is "<<metrics[ip][t].n<<" mean "<<metrics[ip][t].records[ct].mean<<endl;
+	      metrics[ip][t].records[ct].ss += data*data;
+	      // cout<< metrics[ip][t].records[ct].ss<<endl;
+
+	      
+	      metrics[ip][t].records[ct].mean = metrics[ip][t].records[ct].sum/metrics[ip][t].n;
+	      metrics[ip][t].records[ct].stdev = sqrt(metrics[ip][t].records[ct].ss/metrics[ip][t].n - pow(metrics[ip][t].records[ct].mean,2));
 	    }
+	  //cout<<" i "<<t<<" ct "<<ct<<" updated to n "<<metrics[ip][t].n<<" mean "<<metrics[ip][t].records[ct].mean<<" stdev "<<metrics[ip][t].records[ct].stdev<<" ss "<< metrics[ip][t].records[ct].ss<<endl;
 	  if (data > metrics[ip][t].records[ct].max)
 	    {
 	      metrics[ip][t].records[ct].max = data;
-	    }
+	    }	  
 	  //cout<<" normal\n";
 	}
     }
+  metrics[ip][t].ltime = time;      
 }
 
 void tag_flows()
@@ -487,9 +519,6 @@ void tag_flows()
       // See if we need to tag or not
       if (stats[ip].statsdata.size() < LIMITSIZE)
 	continue;
-      // If total is too low we won't tag
-      if (stats[ip].maxs < allowed[SRC])
-	continue;
       // Initialize
       if (metrics.find(ip) == metrics.end())
 	{
@@ -499,6 +528,7 @@ void tag_flows()
 	  for (enum type t=TOTAL; t<=RPC; t=(enum type)((int)t + 1))
 	    {
 	      metrics[ip][t].n = 0;
+	      metrics[ip][t].ltime = starttime;
 	      metrics[ip][t].stime = starttime;
 	      for (enum celltype ct = SRC; ct <= FLOW; ct=(enum celltype)((int)ct+ 1))
 		{
@@ -518,28 +548,13 @@ void tag_flows()
 	    {
 	      enum type t = cit->first;
 	      struct bcell value;
+	      double age = 0;
 	      value.srcs = 0;
 	      value.vol = 0;
 	      value.flows = 0;
-	      if(time > metrics[ip][t].stime)
-		{
-		  int diff = time - metrics[ip][t].stime;
-
-		  for (enum celltype ct = SRC; ct <= FLOW; ct=(enum celltype)((int)ct+ 1))
-		    {
-		      double ao = metrics[ip][t].records[ct].mean;
-		      metrics[ip][t].records[ct].mean =  diff*metrics[ip][t].records[ct].mean/(diff+metrics[ip][t].n);
-		      metrics[ip][t].records[ct].ss = (metrics[ip][t].n*(metrics[ip][t].records[ct].ss+pow((ao-metrics[ip][t].records[ct].mean),2))+diff*pow(metrics[ip][t].records[ct].mean,2))/(diff+metrics[ip][t].n);		  
-		      metrics[ip][t].records[ct].cusum = 0;
-
-		    }
-		   metrics[ip][t].n = metrics[ip][t].n+diff;
-		   metrics[ip][t].stime = time;
-		}
-	      metrics[ip][t].stime++;
-	      metrics[ip][t].n++;
 	      value = cit->second;
-	      calc_cusum(ip, t, value);
+	      //cout<<"Time "<<time<<" type "<<t<<" srcs "<<value.srcs<<" vol "<<value.vol<<" flows "<<value.flows<<endl;
+	      calc_cusum(ip, t, value, time);
 	      update_means(ip, t, value, time);
 	    }
 	}
