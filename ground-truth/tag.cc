@@ -65,15 +65,16 @@
 #define BILLION 1000000000L
 #define DAY 86400
 #define MINV 1.1
-#define MINS 500
-#define THRESH 5
+#define MINS 3600
+#define THRESH 15
 #define NUMSTD 3
-#define LIMITSIZE 70
+#define LIMITSIZE 10
 
 using namespace std;
 
 
 // Global variables
+double lambda = 0.9;
 bool resetrunning = false;
 char saveline[MAXLINE];
 int numattack = 0;
@@ -86,7 +87,7 @@ struct bcell {
   int srcs;
   int vol;
   int flows;
-  int tag;
+  double tag;
 };
 
 enum type {TOTAL, UDPT, ICMPT,  SYNT, ACKT, NTPR, DNSR, FRAG, LDAPR, SYNACKT, RSTT, MDNS, CGEN, L2TP, MCHD, DNS, RPC, USERDEF};
@@ -112,13 +113,17 @@ map <celltype, int> allowed;
 struct ccell{
   int max;
   double mean;
+  double sum;
   double ss;
+  double stdev;
   double cusum;
+  double last;
 };
   
 struct record {
-  int n;
+  double n;
   unsigned int stime;
+  unsigned int ltime;
   map<celltype, ccell> records;
 };
 
@@ -132,6 +137,7 @@ void print_stats(string file)
   out.open(file, std::ios_base::app);
 
   int i = 0;
+  //cout<<"printing stats"<<endl;
   for(auto it = stats.begin(); it != stats.end(); it++)
     {
       for (auto iit = it->second.statsdata.begin(); iit != it->second.statsdata.end(); iit++)
@@ -142,16 +148,20 @@ void print_stats(string file)
 	      if (dit->second.srcs > 0)
 		nonzero = true;
 	    }
+	  //cout<<"Nonzero "<<nonzero<<endl;
 	  if (nonzero)
 	    {
+	       cout<<"Printing for time "<<iit->first<<endl;
 	      out<<toip(it->first)<<" "<<iit->first<<" ";
 	      for (auto dit = iit->second.data.begin(); dit != iit->second.data.end(); dit++)
 		{
-		  out<<dit->first<<" "<<dit->second.srcs<<" "<<dit->second.vol<<" "<<dit->second.flows<<" ";
+		  out<<dit->first<<" "<<dit->second.srcs<<" "<<dit->second.vol<<" "<<dit->second.flows<<" "<<dit->second.tag<<",";
+		  /*
 		  if (dit->second.tag > 0)
 		    out<<"A"<<dit->second.tag<<",";
 		  else
 		    out<<"0,";		  
+		  */
 		}
 	      out<<endl;
 	    }
@@ -354,7 +364,7 @@ double read_one_line(void* nf, char* line)
         {
           map<type,bcell> b;
           stats[ip].statsdata[time].data = b;
-	  cout<<"Inserted time "<<time<<endl;
+	  //cout<<"Inserted time "<<time<<endl;
         }
       
       for(int i=1; i<dl-1; i+=4) // trailing comma
@@ -375,10 +385,13 @@ double read_one_line(void* nf, char* line)
     return 0;
 }
 
-void calc_cusum(unsigned int ip, enum type t, struct bcell value)
+void calc_cusum(unsigned int ip, enum type t, struct bcell value, unsigned int time)
 {
+  stats[ip].statsdata[time].data[t].tag = 0;
+
   for (enum celltype ct = SRC; ct <= FLOW; ct=(enum celltype)((int)ct+ 1))
     {
+
       double data;
       if (ct == SRC)
 	data = value.srcs;
@@ -387,26 +400,37 @@ void calc_cusum(unsigned int ip, enum type t, struct bcell value)
       else
 	data = value.flows;
 
-      if(metrics[ip][t].n > 1)
+      if(starttime > 0 && time - starttime >= MINS) //metrics[ip][t].stime >= MINS)
 	{
-	  double std = sqrt(metrics[ip][t].records[ct].ss/(metrics[ip][t].n-1));
-	  double tmp = metrics[ip][t].records[ct].cusum + (data - metrics[ip][t].records[ct].mean)/std;
+	  double std = metrics[ip][t].records[ct].stdev;
+	  if (std < 1)
+	    std = 1;
+	  double tmp = metrics[ip][t].records[ct].cusum*0.5 + (data - metrics[ip][t].records[ct].last)/std;
+	  cout<<"ctype "<<t<<" ct "<<ct<<" Calculating cusum time "<<time<<" old value "<<metrics[ip][t].records[ct].cusum<<" new data "<<data<<" old data "<< metrics[ip][t].records[ct].last<<" std "<<std<<" samples "<<metrics[ip][t].n<<" new value "<<tmp<<endl;
+	  metrics[ip][t].records[ct].cusum = tmp;
 	  if (tmp > 0)
 	    {
-	      metrics[ip][t].records[ct].cusum = tmp;
 	      if (metrics[ip][t].records[ct].cusum > 2*THRESH)
 		  metrics[ip][t].records[ct].cusum = 2*THRESH;
 	    }
 	  else
 	    {
-	      metrics[ip][t].records[ct].cusum = 0;
+	      if (metrics[ip][t].records[ct].cusum < -2*THRESH)
+		  metrics[ip][t].records[ct].cusum = -2*THRESH;
 	    }
 	}
+      if (metrics[ip][t].records[ct].cusum < THRESH)
+	metrics[ip][t].records[ct].last = data;
+
+      stats[ip].statsdata[time].data[t].tag += metrics[ip][t].records[ct].cusum;
     }
 }
 
 void update_means(unsigned int ip, enum type t, struct bcell value, unsigned int time)  
 {
+  double diff =  (double)metrics[ip][t].ltime - (double)time;
+  double age = pow(2, lambda*diff);
+  //cout<<"Ltime "<< metrics[ip][t].ltime<<" time "<<time<<" diff "<<diff<<" age "<<age<<endl;
   // Check if abnormal
   int tag = 0;
 
@@ -423,28 +447,34 @@ void update_means(unsigned int ip, enum type t, struct bcell value, unsigned int
 
       double std = 0;
       if (metrics[ip][t].records[ct].ss > 0)
-	std = sqrt(metrics[ip][t].records[ct].ss/(metrics[ip][t].n-1));
-      cout<<"IP "<<ip<<" time "<<time<<" type "<<t<<" ct "<<ct<<" value "<<data<<" samples "<<metrics[ip][t].n<<" max "<<metrics[ip][t].records[ct].max<<" mean "<<metrics[ip][t].records[ct].mean<<" std "<<std<<" cusum "<< metrics[ip][t].records[ct].cusum;
-      if (metrics[ip][t].records[ct].cusum <= THRESH || metrics[ip][t].n < MINS || data <= MINV*metrics[ip][t].records[ct].max || data <= allowed[ct])
+	std = metrics[ip][t].records[ct].stdev;
+      //cout<<"IP "<<ip<<" time "<<time<<" type "<<t<<" ct "<<ct<<" value "<<data<<" samples "<<metrics[ip][t].n<<" max "<<metrics[ip][t].records[ct].max<<" mean "<<metrics[ip][t].records[ct].mean<<" std "<<std<<" cusum "<< metrics[ip][t].records[ct].cusum;
+      if (metrics[ip][t].records[ct].cusum <= THRESH)
 	{
-	  cout<<" normal , n is "<<metrics[ip][t].n <<"\n";
+	  //    cout<<" normal , n is "<<metrics[ip][t].n <<"\n";
 	}
       else
 	{
 	  //cout<<" anomalous\n";
 	  // Tag as abnormal
-	  cout<<ip<<" "<<t<<" "<<ct<<" anomalous \n";
+	  //cout<<ip<<" "<<t<<" "<<ct<<" anomalous \n";
 	  tag = tag | (int)pow(2,(int)ct);
 	  //cout<<"Anomalous ip "<<ip<<" type "<<t<<" measure "<<ct<<" time "<<time<<" cusum "<< metrics[ip][t].records[ct].cusum<<" data "<<data<<endl;
 	}
     }
   if (tag > 0)
     {
-      stats[ip].statsdata[time].data[t].tag = tag;
-      cout<<"IP "<<ip<<" time "<<time<<" type "<<t<<" tag "<<tag<<endl;
+      //stats[ip].statsdata[time].data[t].tag = tag;
+      //cout<<"IP "<<ip<<" time "<<time<<" type "<<t<<" tag "<<tag<<endl;
     }
   else
     {
+      double oldn = metrics[ip][t].n;
+      // Age count
+      //cout<<"Updating n from "<<metrics[ip][t].n<<" age "<<age<<" new n ";
+      metrics[ip][t].n *= age;
+      metrics[ip][t].n += 1;
+      //cout<<metrics[ip][t].n<<" type "<<t<<" srcs "<<value.srcs<<" vol "<<value.vol<<" flows "<<value.flows<<endl;
       for (enum celltype ct = SRC; ct <= FLOW; ct=(enum celltype)((int)ct+ 1))
 	{
 	  double data;
@@ -456,26 +486,42 @@ void update_means(unsigned int ip, enum type t, struct bcell value, unsigned int
 	    data = value.flows;
 	  
 	  
-      	  if (metrics[ip][t].n == 1)
+	  if (oldn == 0)
 	    {
 	      metrics[ip][t].records[ct].mean =  data;
-	      metrics[ip][t].records[ct].ss = 0;
+	      metrics[ip][t].records[ct].sum =  data;
+	      metrics[ip][t].records[ct].ss = data*data;
+	      metrics[ip][t].records[ct].stdev = 0.1;
 	    }
 	  else
 	    {
-	      double ao = metrics[ip][t].records[ct].mean;
-	      metrics[ip][t].records[ct].mean = metrics[ip][t].records[ct].mean +
-		(data - metrics[ip][t].records[ct].mean)/metrics[ip][t].n;
-	      metrics[ip][t].records[ct].ss = metrics[ip][t].records[ct].ss +
-		(data - ao)*(data - metrics[ip][t].records[ct].mean);
+	      // cout<<"type "<<t<<" ct "<<ct<<" Sum is "<<metrics[ip][t].records[ct].sum<<" aged and added "<<data<<" new sum ";
+	      
+	      metrics[ip][t].records[ct].sum *= age;
+	      metrics[ip][t].records[ct].ss *= age;
+
+	      metrics[ip][t].records[ct].sum += data;
+	      //cout<<metrics[ip][t].records[ct].sum<<" n is "<<metrics[ip][t].n<<" mean "<<metrics[ip][t].records[ct].mean<<endl;
+	      metrics[ip][t].records[ct].ss += data*data;
+	      // cout<< metrics[ip][t].records[ct].ss<<endl;
+
+	      
+	      metrics[ip][t].records[ct].mean = metrics[ip][t].records[ct].sum/metrics[ip][t].n;
+	      double tsum = metrics[ip][t].records[ct].ss/metrics[ip][t].n - pow(metrics[ip][t].records[ct].mean,2);
+	      if (tsum <= 0)
+		metrics[ip][t].records[ct].stdev = 1;
+	      else
+		metrics[ip][t].records[ct].stdev = sqrt(tsum);
 	    }
+	  //cout<<" i "<<t<<" ct "<<ct<<" updated to n "<<metrics[ip][t].n<<" mean "<<metrics[ip][t].records[ct].mean<<" stdev "<<metrics[ip][t].records[ct].stdev<<" ss "<< metrics[ip][t].records[ct].ss<<endl;
 	  if (data > metrics[ip][t].records[ct].max)
 	    {
 	      metrics[ip][t].records[ct].max = data;
-	    }
+	    }	  
 	  //cout<<" normal\n";
 	}
     }
+  metrics[ip][t].ltime = time;      
 }
 
 void tag_flows()
@@ -487,9 +533,6 @@ void tag_flows()
       // See if we need to tag or not
       if (stats[ip].statsdata.size() < LIMITSIZE)
 	continue;
-      // If total is too low we won't tag
-      if (stats[ip].maxs < allowed[SRC])
-	continue;
       // Initialize
       if (metrics.find(ip) == metrics.end())
 	{
@@ -499,6 +542,7 @@ void tag_flows()
 	  for (enum type t=TOTAL; t<=RPC; t=(enum type)((int)t + 1))
 	    {
 	      metrics[ip][t].n = 0;
+	      metrics[ip][t].ltime = starttime;
 	      metrics[ip][t].stime = starttime;
 	      for (enum celltype ct = SRC; ct <= FLOW; ct=(enum celltype)((int)ct+ 1))
 		{
@@ -518,28 +562,13 @@ void tag_flows()
 	    {
 	      enum type t = cit->first;
 	      struct bcell value;
+	      double age = 0;
 	      value.srcs = 0;
 	      value.vol = 0;
 	      value.flows = 0;
-	      if(time > metrics[ip][t].stime)
-		{
-		  int diff = time - metrics[ip][t].stime;
-
-		  for (enum celltype ct = SRC; ct <= FLOW; ct=(enum celltype)((int)ct+ 1))
-		    {
-		      double ao = metrics[ip][t].records[ct].mean;
-		      metrics[ip][t].records[ct].mean =  diff*metrics[ip][t].records[ct].mean/(diff+metrics[ip][t].n);
-		      metrics[ip][t].records[ct].ss = (metrics[ip][t].n*(metrics[ip][t].records[ct].ss+pow((ao-metrics[ip][t].records[ct].mean),2))+diff*pow(metrics[ip][t].records[ct].mean,2))/(diff+metrics[ip][t].n);		  
-		      metrics[ip][t].records[ct].cusum = 0;
-
-		    }
-		   metrics[ip][t].n = metrics[ip][t].n+diff;
-		   metrics[ip][t].stime = time;
-		}
-	      metrics[ip][t].stime++;
-	      metrics[ip][t].n++;
 	      value = cit->second;
-	      calc_cusum(ip, t, value);
+	      //cout<<"Time "<<time<<" type "<<t<<" srcs "<<value.srcs<<" vol "<<value.vol<<" flows "<<value.flows<<endl;
+	      calc_cusum(ip, t, value, time);
 	      update_means(ip, t, value, time);
 	    }
 	}
@@ -561,7 +590,7 @@ void read_from_file(void* nf, char* format, string file_in)
   // Each million lines tag and print
   while ((epoch = read_one_line(nf, line)) != -1)
     {
-      cout<<"Read "<<saveline<<endl;
+      //cout<<"Read "<<saveline<<endl;
       count ++;
       if (count >= 100)
 	{
@@ -618,7 +647,7 @@ int main (int argc, char *argv[])
   sprintf(cmd,"gunzip -c %s", file_in);
   nf = popen(cmd, "r");
   read_from_file(nf, format, file_in);
-  //tag_flows();
-  //print_stats((string)file_in+".tags");
+  tag_flows();
+  print_stats((string)file_in+".tags");
   return 0;
 }

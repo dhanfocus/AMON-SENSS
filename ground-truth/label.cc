@@ -64,7 +64,7 @@
 
 #define BILLION 1000000000L
 #define DAY 86400
-#define DELAY 60
+#define DELAY 600
 using namespace std;
 
 
@@ -285,6 +285,8 @@ amonProcessingPcap(u_char* p, struct pcap_pkthdr *h,  double time) // (pcap_pkth
   // Start and end time of a flow are just pkt time
   double start = time;
   double end = time;
+  if (end > curtime)
+    curtime = end;
   double dur = 1;
   int pkts, bytes;
 
@@ -470,6 +472,8 @@ void amonProcessingNfdump (char* line, double time)
   start = start + strtol(line+delimiters[1], &tokene, 10)/1000.0;
   double end = (double)strtol(line+delimiters[2], &tokene, 10);
   end = end + strtol(line+delimiters[3], &tokene, 10)/1000.0;
+  if (end > curtime)
+    curtime = end;
   double dur = end - start;
   // Normalize duration
   if (dur < 0)
@@ -570,6 +574,7 @@ double read_one_line(void* nf, char* format, char* line, u_char* p,  struct pcap
   if (!strcmp(format, "nf") || !strcmp(format, "ft") || !strcmp(format,"fr"))
     {
       char* s = fgets(line, MAXLINE, (FILE*) nf);
+      char* tokene;
       if (s == NULL)
 	return -1;
 
@@ -580,10 +585,12 @@ double read_one_line(void* nf, char* format, char* line, u_char* p,  struct pcap
 	  if (strstr(tmpline, "|") == NULL)
 	    return 0;
 	  int dl = parse(tmpline,'|', &delimiters);
-	  double epoch = strtol(tmpline+delimiters[0],NULL,10);
-	  int msec = atoi(tmpline+delimiters[1]);
-	  epoch = epoch + msec/1000.0;
-	  return epoch;
+
+	  double start = (double)strtol(tmpline+delimiters[0], &tokene, 10);
+	  start = start + strtol(tmpline+delimiters[1], &tokene, 10)/1000.0;
+	  double end = (double)strtol(tmpline+delimiters[2], &tokene, 10);
+	  end = end + strtol(tmpline+delimiters[3], &tokene, 10)/1000.0;
+	  return end;
 	}
       else {
 	int dl = parse(line,'\t', &delimiters);
@@ -631,7 +638,6 @@ void print_stats(double epoch, bool force)
 {
   ofstream out;
   out.open("output.txt", std::ios_base::app);
-
   int i = 0;
   for(auto it = stats.begin(); it != stats.end(); it++)
     {
@@ -866,9 +872,11 @@ int main (int argc, char *argv[])
 	  }
 	cout<<"Done with the file "<<file<<" time "<<time(0)<<" flows "<<allflows<<endl;
 	// Print out stats
-	print_stats(curtime, true);
 	if (endfile && strstr(file,endfile) != 0)
-	  break;
+	  {
+	    print_stats(curtime, true);
+	    break;
+	  }
       }
     }
   return 0;
