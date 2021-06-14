@@ -58,6 +58,7 @@ enum flags {SYN=2, SYNACK=18, PUSH=8, PUSHACK = 24, RST=4, ACK=16}; // Flags we 
 
 
 
+
 class DataBuf : public streambuf
 {
  public:

@@ -66,6 +66,7 @@
 #define DAY 86400
 #define MINV 1.1
 #define MINS 3600
+
 #define THRESH 15
 #define NUMSTD 3
 #define LIMITSIZE 10
@@ -406,7 +407,7 @@ void calc_cusum(unsigned int ip, enum type t, struct bcell value, unsigned int t
 	  if (std < 1)
 	    std = 1;
 	  double tmp = metrics[ip][t].records[ct].cusum*0.5 + (data - metrics[ip][t].records[ct].last)/std;
-	  cout<<"ctype "<<t<<" ct "<<ct<<" Calculating cusum time "<<time<<" old value "<<metrics[ip][t].records[ct].cusum<<" new data "<<data<<" old data "<< metrics[ip][t].records[ct].last<<" std "<<std<<" samples "<<metrics[ip][t].n<<" new value "<<tmp<<endl;
+	  // cout<<"ctype "<<t<<" ct "<<ct<<" Calculating cusum time "<<time<<" old value "<<metrics[ip][t].records[ct].cusum<<" new data "<<data<<" old data "<< metrics[ip][t].records[ct].last<<" std "<<std<<" samples "<<metrics[ip][t].n<<" new value "<<tmp<<endl;
 	  metrics[ip][t].records[ct].cusum = tmp;
 	  if (tmp > 0)
 	    {
