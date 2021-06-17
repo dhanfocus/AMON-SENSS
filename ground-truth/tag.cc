@@ -69,7 +69,7 @@
 
 #define THRESH 15
 #define NUMSTD 3
-#define LIMITSIZE 10
+#define LIMITSIZE 100
 
 using namespace std;
 
@@ -152,21 +152,15 @@ void print_stats(string file)
 	  //cout<<"Nonzero "<<nonzero<<endl;
 	  if (nonzero)
 	    {
-	       cout<<"Printing for time "<<iit->first<<endl;
 	      out<<toip(it->first)<<" "<<iit->first<<" ";
 	      for (auto dit = iit->second.data.begin(); dit != iit->second.data.end(); dit++)
 		{
 		  out<<dit->first<<" "<<dit->second.srcs<<" "<<dit->second.vol<<" "<<dit->second.flows<<" "<<dit->second.tag<<",";
-		  /*
-		  if (dit->second.tag > 0)
-		    out<<"A"<<dit->second.tag<<",";
-		  else
-		    out<<"0,";		  
-		  */
 		}
 	      out<<endl;
 	    }
 	}
+      it->second.statsdata.clear();
     }
   out.close();
 }
@@ -406,8 +400,10 @@ void calc_cusum(unsigned int ip, enum type t, struct bcell value, unsigned int t
 	  double std = metrics[ip][t].records[ct].stdev;
 	  if (std < 1)
 	    std = 1;
+	  if (ct > 0 && std <= 4096)
+	    std = 4096;
 	  double tmp = metrics[ip][t].records[ct].cusum*0.5 + (data - metrics[ip][t].records[ct].last)/std;
-	  // cout<<"ctype "<<t<<" ct "<<ct<<" Calculating cusum time "<<time<<" old value "<<metrics[ip][t].records[ct].cusum<<" new data "<<data<<" old data "<< metrics[ip][t].records[ct].last<<" std "<<std<<" samples "<<metrics[ip][t].n<<" new value "<<tmp<<endl;
+	  //cout<<"ctype "<<t<<" ct "<<ct<<" Calculating cusum time "<<time<<" old value "<<metrics[ip][t].records[ct].cusum<<" new data "<<data<<" old data "<< metrics[ip][t].records[ct].last<<" std "<<std<<" samples "<<metrics[ip][t].n<<" new value "<<tmp<<endl;
 	  metrics[ip][t].records[ct].cusum = tmp;
 	  if (tmp > 0)
 	    {
@@ -429,7 +425,7 @@ void calc_cusum(unsigned int ip, enum type t, struct bcell value, unsigned int t
 
 void update_means(unsigned int ip, enum type t, struct bcell value, unsigned int time)  
 {
-  double diff =  (double)metrics[ip][t].ltime - (double)time;
+  double diff = -1; // (double)metrics[ip][t].ltime - (double)time;
   double age = pow(2, lambda*diff);
   //cout<<"Ltime "<< metrics[ip][t].ltime<<" time "<<time<<" diff "<<diff<<" age "<<age<<endl;
   // Check if abnormal
@@ -593,12 +589,11 @@ void read_from_file(void* nf, char* format, string file_in)
     {
       //cout<<"Read "<<saveline<<endl;
       count ++;
-      if (count >= 100)
+      if (count >= 1000000)
 	{
 	  cout<<"Tagging\n\n";
 	  tag_flows();
 	  print_stats((string)file_in+".tags");
-	  stats.clear();
 	  count = 0;
 	}
     }
@@ -643,12 +638,81 @@ int main (int argc, char *argv[])
       cerr<<"You must specify the file with statistics\n";
       exit(-1);
     }
-  char cmd[MAXLINE];
-  FILE* nf;
-  sprintf(cmd,"gunzip -c %s", file_in);
-  nf = popen(cmd, "r");
-  read_from_file(nf, format, file_in);
-  tag_flows();
-  print_stats((string)file_in+".tags");
+
+  int isdir = 0;
+  vector<string> tracefiles;
+  vector<string> inputs;
+  struct stat s;
+  inputs.push_back(file_in);
+  int i = 0;
+  // Recursively read if there are several directories that hold the files
+  while(i < inputs.size())
+    {
+      if(stat(inputs[i].c_str(),&s) == 0 )
+	{
+	  if(s.st_mode & S_IFDIR )
+	    {
+	      // it's a directory, read it and fill in 
+	      // list of files
+	      DIR *dir;
+	      struct dirent *ent;
+	      
+	      if ((dir = opendir (inputs[i].c_str())) != NULL) {
+		// Remember all the files and directories within directory 
+		while ((ent = readdir (dir)) != NULL) {
+		  if((strcmp(ent->d_name,".") != 0) && (strcmp(ent->d_name,"..") != 0)){
+		    inputs.push_back(string(inputs[i]) + "/" + string(ent->d_name));
+		  }
+		}
+		closedir (dir);
+	      } else {
+		perror("Could not read directory ");
+		exit(1);
+	      }
+	    }
+	  else if(s.st_mode & S_IFREG)
+	    {
+	      tracefiles.push_back(inputs[i]);
+	    }
+	  // Ignore other file types
+	}
+      i++;
+    }
+  inputs.clear();
+  
+  //tracefiles.push_back(file_in);
+  
+  std::sort(tracefiles.begin(), tracefiles.end(), sortbyFilename());
+  for (vector<string>::iterator vit=tracefiles.begin(); vit != tracefiles.end(); vit++)
+    {
+      cout<<"Files to read "<<vit->c_str()<<endl;
+    }
+  int started = 1;
+  if (startfile != NULL)
+    started = 0;
+  double start = time(0);
+  // Go through tracefiles and read each one
+  // Jelena: should delete after reading
+  for (vector<string>::iterator vit=tracefiles.begin(); vit != tracefiles.end(); vit++)
+    {
+      const char* file = vit->c_str();
+      
+      if (!started && startfile && strstr(file,startfile) == NULL)
+	{
+	  continue;
+	}
+      
+      started = 1;
+      
+      // Now read from file
+      char cmd[MAXLINE];
+      cout<<"Reading from "<<file<<endl;
+      FILE* nf;
+      sprintf(cmd,"gunzip -c %s", file);
+      nf = popen(cmd, "r");
+      read_from_file(nf, format, file);
+      tag_flows();
+      print_stats((string)file+".tags");
+    }
   return 0;
 }

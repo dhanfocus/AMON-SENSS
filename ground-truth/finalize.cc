@@ -69,6 +69,7 @@ using namespace std;
 
 
 // Global variables
+bool shouldtag = false;
 bool resetrunning = false;
 char saveline[MAXLINE];
 int numattack = 0;
@@ -198,8 +199,10 @@ map<unsigned int, set<unsigned int>> sources;
 
 // Main function, which processes each flow
 void
-amonProcessing(flow_t flow, int len, double start, double end, int oci, int ooci)
+amonProcessing(flow_t flow, int len, double start, double end, int oci, int ooci, string file)
 {
+  ofstream out;
+  out.open(file, std::ios_base::app);
   end = (unsigned int) end;
   // Incoming flow
   if (flow.dlocal && !flow.slocal)
@@ -258,11 +261,11 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci, int ooci
       else if (flow.dport == 111)
 	labels.insert(RPC);
 
-      cout<<(unsigned int)start<<"\t"<<(unsigned int)end<<"\t"<<toip(flow.src)<<"\t"<<(unsigned short)flow.sport<<"\t"<<toip(flow.dst)<<"\t"<<(unsigned short)flow.dport<<"\t"<<(int)flow.proto<<"\t"<<flow.flags<<"\t";
+      out<<(unsigned int)start<<"\t"<<(unsigned int)end<<"\t"<<toip(flow.src)<<"\t"<<(unsigned short)flow.sport<<"\t"<<toip(flow.dst)<<"\t"<<(unsigned short)flow.dport<<"\t"<<(int)flow.proto<<"\t"<<flow.flags<<"\t";
       if (log(len)/log(10)>7)
-	cout<<len<<"\t"<<ooci;
+	out<<len<<"\t"<<ooci;
       else
-	cout<<len<<"\t\t"<<ooci;
+	out<<len<<"\t\t"<<ooci;
       bool isattack = false;
       bool issource = false;
       for (auto it =attacks.begin(); it != attacks.end(); it++)
@@ -292,13 +295,15 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci, int ooci
 		}
 	    }
 	}
-      string tag = "b";
-      if (issource)
-	tag = "a";
-      if (isattack)
-	cout<<" "<<tag<<" A\n";
+      if (shouldtag)
+	{
+	  if (isattack)
+	    out<<" A\n";
+	  else
+	    out<<" B\n";
+	}
       else
-	cout<<" "<<tag<<" B\n";
+	out<<" N\n";
     }
 }
 
@@ -312,7 +317,7 @@ void update_stats(cell* c)
 	
 // Read pcap packet format
 void
-amonProcessingPcap(u_char* p, struct pcap_pkthdr *h,  double time) // (pcap_pkthdr* hdr, u_char* p, double time)
+amonProcessingPcap(u_char* p, struct pcap_pkthdr *h,  double time, string file)
 {
   // Start and end time of a flow are just pkt time
   double start = time;
@@ -356,14 +361,14 @@ amonProcessingPcap(u_char* p, struct pcap_pkthdr *h,  double time) // (pcap_pkth
       flow.dlocal = islocal(flow.dst);
       flow.proto = proto;
       int oci = 1;
-      amonProcessing(flow, bytes, start, end, oci, oci); 
+      amonProcessing(flow, bytes, start, end, oci, oci, file); 
     }
 }
 
 
 // Read Flowride flow format
 void
-amonProcessingFlowride(char* line, double start)
+amonProcessingFlowride(char* line, double start, string file)
 {
   /* 1576613068700777885	ICMP	ACTIVE	x	129.82.138.44	46.167.131.0	0	0	1	0	60	0	0	8	0	1	0	60	0	1576613073700960814 */
   // Line is already parsed
@@ -487,11 +492,11 @@ amonProcessingFlowride(char* line, double start)
   if (oci == 0)
     return;
   //cout<<"Start "<<start<<" end "<<end<<" dur "<<dur<<" bytes "<<bytes<<" oci "<<oci<<" line "<<saveline<<" flags "<<flags<<endl; // Jelena
-  amonProcessing(flow, bytes, start, end, oci, ooci);
+  amonProcessing(flow, bytes, start, end, oci, ooci, file);
 }
 
 // Read nfdump flow format
-void amonProcessingNfdump (char* line, double time)
+void amonProcessingNfdump (char* line, double time, string file)
 {
   /* 2|1453485557|768|1453485557|768|6|0|0|0|2379511808|44694|0|0|0|2792759296|995|0|0|0|0|2|0|1|40 */
   // Get start and end time of a flow
@@ -562,7 +567,7 @@ void amonProcessingNfdump (char* line, double time)
   if (oci == 0)
     return;
 
-  amonProcessing(flow, bytes, start, end, oci, ooci); 
+  amonProcessing(flow, bytes, start, end, oci, ooci, file); 
 }
 
 
@@ -647,14 +652,14 @@ double read_one_line(void* nf, char* format, char* line, u_char* p,  struct pcap
   return 0;
 }
 
-void process_one_line(char* line, void* nf, double epoch, char* format, u_char* p, struct pcap_pkthdr *h)
+void process_one_line(char* line, void* nf, double epoch, char* format, u_char* p, struct pcap_pkthdr *h, string file)
 {
   if (!strcmp(format, "nf") || !strcmp(format, "ft"))
-    amonProcessingNfdump (line, epoch);
+    amonProcessingNfdump (line, epoch, file);
   else if (!strcmp(format, "fr"))
-    amonProcessingFlowride (line, epoch);
+    amonProcessingFlowride (line, epoch, file);
   else if (!strcmp(format, "pcap"))
-    amonProcessingPcap(p, h, epoch);
+    amonProcessingPcap(p, h, epoch, file);
   // add more formats
 }
 
@@ -692,7 +697,7 @@ void print_stats(double epoch, bool force)
 
 
 // Read from file according to format
-void read_from_file(void* nf, char* format)
+void read_from_file(void* nf, char* format, string file)
 {
   // -1 means EOF, 0 means line without a flow
   char line[MAXLINE];
@@ -723,7 +728,7 @@ void read_from_file(void* nf, char* format)
 	  start = time(0);
 	}
       processedflows++;
-      process_one_line(line, nf, epoch, format, p, h);
+      process_one_line(line, nf, epoch, format, p, h, file);
     }
 }
 
@@ -758,6 +763,7 @@ void loadattacks(const char* fname)
       inFile>>dummy;
       inFile>>dummy;
       inFile>>a.type;
+      cout<<"Attack on "<<target<<" type "<<a.type<<endl;
       attacks.push_back(a);
     }
 }
@@ -796,7 +802,7 @@ int main (int argc, char *argv[])
   char* format;
   char* file_at;
   
-  while ((c = getopt (argc, argv, "hvr:s:e:F:a:")) != '?')
+  while ((c = getopt (argc, argv, "htvr:s:e:F:a:")) != '?')
     {
       if ((c == 255) || (c == -1))
 	break;
@@ -806,6 +812,9 @@ int main (int argc, char *argv[])
 	case 'h':
 	  printHelp ();
 	  return (0);
+	  break;
+	case 't':
+	  shouldtag = true;
 	  break;
 	case 'F':
 	  format = strdup(optarg);
@@ -855,7 +864,7 @@ int main (int argc, char *argv[])
   // Read flows from a file
   if (stream_in)
     {
-      read_from_file(stdin, format);
+      read_from_file(stdin, format, "stdin");
     }
   else 
     {
@@ -938,10 +947,13 @@ int main (int argc, char *argv[])
 	      pt = pcap_open_live(file, MAXLINE, 1, 1000, ebuf);
 	    else
 	      pt = pcap_open_offline (file, ebuf);
-	    read_from_file(pt, format);
+	    read_from_file(pt, format, "pcap");
 	  }
 	else
 	  {
+	    char tmpfile[MAXLINE];
+	    strcpy(tmpfile, file);
+	    int dl = parse(tmpfile,'/', &delimiters);
 	    if (!strcmp(format, "nf"))
 	      {
 		sprintf(cmd,"nfdump -r %s -o pipe 2>/dev/null", file);
@@ -955,7 +967,7 @@ int main (int argc, char *argv[])
 		sprintf(cmd,"gunzip -c %s", file);
 	      }
 	    nf = popen(cmd, "r");
-	    read_from_file(nf, format);
+	    read_from_file(nf, format, (string)"/nfs/synology/mirkovic/FRGP/train-final/"+(string)(tmpfile + delimiters[dl-1]) + (string)".final");
 	    pclose(nf);
 	  }
 	cout<<"Done with the file "<<file<<" time "<<time(0)<<" flows "<<allflows<<endl;

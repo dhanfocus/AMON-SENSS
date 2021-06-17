@@ -66,9 +66,9 @@
 #define DAY 86400
 #define MINV 1.1
 #define MINS 3600
-#define DUR 120
+#define DUR 30
 #define PKTS 1000
-#define SRCS 5
+#define SRCS 1
 #define NUMSTD 3
 #define LIMITSIZE 100
 
@@ -128,7 +128,7 @@ struct attack
   unsigned int start;
   unsigned int end;
   int rate;
-  set <enum type> atypes;
+  map <enum type, unsigned int> atypes;
   int dur;
   int gap;
 };
@@ -136,9 +136,6 @@ struct attack
 map<unsigned int, attack> attacks;
 
 map<int, int> tagmap;
-
-//  Print out stats
-
 
 // Something like strtok but it doesn't create new
 // strings. Instead it replaces delimiters with 0
@@ -334,7 +331,6 @@ double read_one_line(void* nf, char* line)
 		  a.end = time;
 		  a.dur = 1;
 		  a.rate = b.flows;
-		  a.atypes.insert(t);
 		  a.gap = 0;
 		  attacks[ip] = a;
 		}
@@ -356,9 +352,18 @@ double read_one_line(void* nf, char* line)
 		{
 		  int tt = 0;
 		  cout<<"Attack on "<<toip(ip)<<" from "<<attacks[ip].start<<" to "<<attacks[ip].end<<" dur "<<attacks[ip].dur<<" rate "<<attacks[ip].rate<<" types ";
+		  unsigned long total = 0;
 		  for (auto at=attacks[ip].atypes.begin(); at != attacks[ip].atypes.end(); at++)
 		    {
-		      tt = tt | tagmap[*at];
+		      //cout<<" type "<<at->first<<" flows "<<at->second<<endl;
+		      if ((int)at->first == 0)
+			{
+			  total = at->second;
+			}
+		      else if (at->second >= 0.05*total)
+			{
+			  tt = tt | tagmap[at->first];
+			}
 		    }
 		  if (tt > 128 && (tt & 128))
 		    tt = tt - 128;
@@ -369,50 +374,30 @@ double read_one_line(void* nf, char* line)
 	      attacks[ip].gap = 0;
 	      attacks[ip].dur = 0;
 	      attacks[ip].start = time;
+	      attacks[ip].rate = frate;
 	      attacks[ip].atypes.clear();
 	    }
 	  else
 	    {
-	      attacks[ip].rate = attacks[ip].rate * 0.5 + 0.5 * frate;
+	      if (attacks[ip].rate < frate)
+		attacks[ip].rate = frate;
 	      attacks[ip].gap = 0;
 	      attacks[ip].end = time;
-	    }
-	  for(int i=1; i<dl-1; i+=5) // trailing comma
-	    {
-	      enum type t = (enum type)atoi(line+delimiters[i]);
-	      double tag = stod(line+delimiters[i+4]);
-	      if (tag > THRESH)
-		{
-		  if (attacks[ip].atypes.find(t) == attacks[ip].atypes.end())
-		    attacks[ip].atypes.insert(t);
-		}
 	    }
 	attacks[ip].dur++;
 	attacks[ip].ltime = time;
 	}
-      else
+      for(int i=1; i<dl-1; i+=5) // trailing comma
 	{
-	  if (attacks.find(ip) != attacks.end())
+	  enum type t = (enum type)atoi(line+delimiters[i]);
+	  int flows = atoi(line+delimiters[i+3]);
+	  double tag = stod(line+delimiters[i+4]);
+	  if (tag > THRESH)
 	    {
-	      attacks[ip].gap++;
-	      if (attacks[ip].gap >= DUR)
-		{
-		  if (attacks[ip].dur >= DUR)
-		    {
-		      int tt = 0;
-		      cout<<"Attack on "<<toip(ip)<<" from "<<attacks[ip].start<<" to "<<attacks[ip].end<<" dur "<<attacks[ip].dur<<" rate "<<attacks[ip].rate<<" types ";
-		      for (auto at=attacks[ip].atypes.begin(); at != attacks[ip].atypes.end(); at++)
-			{
-			  tt = tt | tagmap[*at];
-			}
-		      if (tt > 128 && (tt & 128))
-			tt = tt - 128;
-		      if (tt != 4 && (tt & 4))
-			tt = tt - 4;
-		      cout<<tt<<endl;
-		    }
-		  attacks.erase(ip);
-		}
+	      if (attacks[ip].atypes.find(t) == attacks[ip].atypes.end())
+		attacks[ip].atypes[t] = flows;
+	      else
+		attacks[ip].atypes[t] += flows;
 	    }
 	}
       return 1;
@@ -433,24 +418,6 @@ void read_from_file(void* nf, char* format)
   u_char* p;
   struct pcap_pkthdr *h;
   while ((epoch = read_one_line(nf, line)) != -1);
-  for (auto it = attacks.begin(); it != attacks.end(); it++)
-    {
-      unsigned int ip = it->first;
-      if (attacks[ip].dur >= DUR)
-	{
-	  int tt = 0;
-	  cout<<"Attack on "<<toip(ip)<<" from "<<attacks[ip].start<<" to "<<attacks[ip].end<<" dur "<<attacks[ip].dur<<" rate "<<attacks[ip].rate<<" types ";
-	  for (auto at=attacks[ip].atypes.begin(); at != attacks[ip].atypes.end(); at++)
-	    {
-	      tt = tt | tagmap[*at];
-	    }
-	  if (tt > 128 && (tt & 128))
-	    tt = tt - 128;
-	  if (tt != 4 && (tt & 4))
-	    tt = tt - 4;
-	  cout<<tt<<endl;
-	}
-    }
 }
 
 
@@ -498,12 +465,108 @@ int main (int argc, char *argv[])
       cerr<<"You must specify the threshold\n";
       exit(-1);
     }
-  char cmd[MAXLINE];
-  FILE* nf;
-  
   read_tags();
-  sprintf(cmd,"gunzip -c %s", file_in);
-  nf = popen(cmd, "r");
-  read_from_file(nf, format);
-  return 0;
+
+    int isdir = 0;
+  vector<string> tracefiles;
+  vector<string> inputs;
+  struct stat s;
+  inputs.push_back(file_in);
+  int i = 0;
+  // Recursively read if there are several directories that hold the files
+  while(i < inputs.size())
+    {
+      if(stat(inputs[i].c_str(),&s) == 0 )
+	{
+	  if(s.st_mode & S_IFDIR )
+	    {
+	      // it's a directory, read it and fill in 
+	      // list of files
+	      DIR *dir;
+	      struct dirent *ent;
+	      
+	      if ((dir = opendir (inputs[i].c_str())) != NULL) {
+		// Remember all the files and directories within directory 
+		while ((ent = readdir (dir)) != NULL) {
+		  if((strcmp(ent->d_name,".") != 0) && (strcmp(ent->d_name,"..") != 0)){
+		    inputs.push_back(string(inputs[i]) + "/" + string(ent->d_name));
+		  }
+		}
+		closedir (dir);
+	      } else {
+		perror("Could not read directory ");
+		exit(1);
+	      }
+	    }
+	  else if(s.st_mode & S_IFREG)
+	    {
+	      tracefiles.push_back(inputs[i]);
+	    }
+	  // Ignore other file types
+	}
+      i++;
+    }
+  inputs.clear();
+  
+  //tracefiles.push_back(file_in);
+  
+  std::sort(tracefiles.begin(), tracefiles.end(), sortbyFilename());
+  for (vector<string>::iterator vit=tracefiles.begin(); vit != tracefiles.end(); vit++)
+    {
+      cout<<"Files to read "<<vit->c_str()<<endl;
+    }
+  int started = 1;
+  if (startfile != NULL)
+    started = 0;
+  double start = time(0);
+  // Go through tracefiles and read each one
+  // Jelena: should delete after reading
+  for (vector<string>::iterator vit=tracefiles.begin(); vit != tracefiles.end(); vit++)
+    {
+      const char* file = vit->c_str();
+      
+      if (!started && startfile && strstr(file,startfile) == NULL)
+	{
+	  continue;
+	}
+      
+      started = 1;
+      
+      // Now read from file
+      cout<<"Reading from "<<file<<endl;
+
+      char cmd[MAXLINE];
+      FILE* nf;
+  
+      
+      sprintf(cmd,"gunzip -c %s", file);
+      nf = popen(cmd, "r");
+      read_from_file(nf, format);
+    }
+    for (auto it = attacks.begin(); it != attacks.end(); it++)
+    {
+      unsigned int ip = it->first;
+      if (attacks[ip].dur >= DUR)
+	{
+	  int tt = 0;
+	  cout<<"Attack on "<<toip(ip)<<" from "<<attacks[ip].start<<" to "<<attacks[ip].end<<" dur "<<attacks[ip].dur<<" rate "<<attacks[ip].rate<<" types ";
+	  unsigned long total = 0;
+	  for (auto at=attacks[ip].atypes.begin(); at != attacks[ip].atypes.end(); at++)
+	    {
+	      if ((int)at->first == 0)
+		{
+		  total = at->second;
+		}
+	      else if (at->second >= 0.05*total)
+		{
+		  tt = tt | tagmap[at->first];
+		}
+	    }
+	  if (tt > 128 && (tt & 128))
+	    tt = tt - 128;
+	  if (tt != 4 && (tt & 4))
+	    tt = tt - 4;
+	  cout<<tt<<endl;
+	}
+    }
 }
