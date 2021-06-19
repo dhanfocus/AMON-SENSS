@@ -189,7 +189,7 @@ char *trim(char *str)
 
 // Main function, which processes each flow
 void
-amonProcessing(flow_t flow, int len, double start, double end, int oci, int ooci)
+amonProcessing(flow_t flow, double len, double start, double end, double oci, int ooci)
 {
   end = (unsigned int) end;
   // Incoming flow
@@ -200,10 +200,13 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci, int ooci
 	  map<unsigned int, cell> a;
 	  stats[flow.dst] = a;
 	}
-      if (stats[flow.dst].find(end) == stats[flow.dst].end())
+      for (long int t = (long int)start ; t <= (long int)end ; t += 1)
 	{
-	  map<type,bcell> b;
-	  stats[flow.dst][end].data = b;
+	  if (stats[flow.dst].find(t) == stats[flow.dst].end())
+	    {
+	      map<type,bcell> b;
+	      stats[flow.dst][t].data = b;
+	    }
 	}
       // Figure out labels
       set<enum type> labels;
@@ -250,22 +253,25 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci, int ooci
       else if (flow.dport == 111)
 	labels.insert(RPC);
 
-      for (auto lit = labels.begin(); lit != labels.end(); lit++)
+      for (long int t = (long int)start ; t <= (long int)end ; t += 1)
 	{
-	  enum type t = *lit;
-	  if (stats[flow.dst][end].data.find(t) == stats[flow.dst][end].data.end())
+	  for (auto lit = labels.begin(); lit != labels.end(); lit++)
 	    {
-	      bcell b;
-	      b.vol = 0;
-	      b.asym = 0;
-	      stats[flow.dst][end].data[t] = b;
+	      enum type ty = *lit;	  
+	      if (stats[flow.dst][t].data.find(ty) == stats[flow.dst][t].data.end())
+		{
+		  bcell b;
+		  b.vol = 0;
+		  b.asym = 0;
+		  stats[flow.dst][t].data[ty] = b;
+		}
+	      stats[flow.dst][t].data[ty].vol += len;
+	      if (ty == TOTAL)
+		stats[flow.dst][t].data[ty].asym += ooci;
+	      else
+		stats[flow.dst][t].data[ty].asym += oci;
+	      stats[flow.dst][t].data[ty].srcs.insert(flow.src);
 	    }
-	  stats[flow.dst][end].data[t].vol += len;
-	  if (t == TOTAL)
-	    stats[flow.dst][end].data[t].asym += ooci;
-	  else
-	    stats[flow.dst][end].data[t].asym += oci;
-	  stats[flow.dst][end].data[t].srcs.insert(flow.src);
 	}
     }
 }
@@ -480,7 +486,7 @@ void amonProcessingNfdump (char* line, double time)
     dur = 0;
   if (dur > 3600)
     dur = 3600;
-  int pkts, bytes;
+  double pkts, bytes;
 
   // Get source and destination IP and port and protocol 
   flow_t flow;
@@ -497,6 +503,9 @@ void amonProcessingNfdump (char* line, double time)
   bytes = atoi(line+delimiters[22]);
   processedbytes+=bytes;
 
+  pkts = (double)(pkts/dur);
+  bytes = (double)(bytes/dur);
+  
   // Cross-traffic, do nothing
   if (!flow.slocal && !flow.dlocal)
     {

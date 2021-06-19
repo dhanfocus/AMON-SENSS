@@ -88,6 +88,7 @@ for $t (keys %targets)
     }
     $cnt = 1;
     $rate = 0;
+
     for $i (keys %attacks)
     {
 	if ($attacks{$i}{'target'} eq $t)
@@ -105,15 +106,22 @@ for $t (keys %targets)
     $erate = 2*$rate;
     for $i (keys %peak)
     {
-	print "Checking $shorttarget with $peak{$i}{'target'}\n";
 	if ($peak{$i}{'target'} eq $shorttarget)
 	{
 	    print $oh "set obj $cnt rect from " . $peak{$i}{'start'} . ",$rate to " . $peak{$i}{'stop'} . ",$erate fc \"green\"\n";
             $cnt++;   
 	}	
     }
-    print $oh "set output '$t.pdf'\n";
-    print $oh "set yrange [:$erate]\n";
-    print $oh "plot '$t.txt' u 2:6 ps 0.2 pt 7\n";
+
+    for $i (keys %attacks)
+    {
+	if ($attacks{$i}{'target'} eq $t)
+	{
+	    print $oh "set output '$t.$i.pdf'\n";
+	    print $oh "set xrange [$attacks{$i}{'start'}-1000:$attacks{$i}{'stop'}+1000]\n";
+	    print $oh "set yrange [:$erate]\n";
+	    print $oh "plot '$t.txt' u 2:6 ps 0.2 pt 7\n";
+	}
+    }
 }
 

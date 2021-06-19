@@ -69,7 +69,7 @@
 
 #define THRESH 15
 #define NUMSTD 3
-#define LIMITSIZE 100
+#define LIMITSIZE 5
 
 using namespace std;
 
