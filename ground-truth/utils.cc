@@ -237,10 +237,8 @@ void loadprefixes(const char* fname)
   char mask[30];
   while(inFile >> pref)
     {
-      cout<<"Prefix "<<pref<<endl;
       if (strstr(pref,":") > 0)
 	{
-	  cout<<"IPv6\n";
 	  continue;
 	}
       char* ptr = strstr(pref, "/");

@@ -91,7 +91,6 @@ struct cell {
   map<type, bcell> data;
 };
 
-map<unsigned int, map<unsigned int, cell>> stats;
 
 // Something like strtok but it doesn't create new
 // strings. Instead it replaces delimiters with 0
@@ -205,18 +204,8 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci, int ooci
   out.open(file, std::ios_base::app);
   end = (unsigned int) end;
   // Incoming flow
-  if (flow.dlocal && !flow.slocal)
+  if (flow.dlocal || flow.slocal)
     {
-      if (stats.find(flow.dst) == stats.end())
-	{
-	  map<unsigned int, cell> a;
-	  stats[flow.dst] = a;
-	}
-      if (stats[flow.dst].find(end) == stats[flow.dst].end())
-	{
-	  map<type,bcell> b;
-	  stats[flow.dst][end].data = b;
-	}
       // Figure out labels
       set<enum type> labels;
 
@@ -283,27 +272,28 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci, int ooci
 			if (labels.find((enum type)t) != labels.end())
 			  {
 			    isattack = true;
-			    if (sources[a.target].find(flow.src) == sources[a.target].end())
-			      issource = true;
 			  }
 		      }
 		  }
 	      }
-	      else
-		{
-		  sources[a.target].insert(flow.src);
-		}
+	      if (sources[a.target].find(flow.src) == sources[a.target].end())
+		issource = true;
+	      if (!isattack)
+		sources[a.target].insert(flow.src);
 	    }
 	}
       if (shouldtag)
 	{
+	  string srclabel="o";
+	  if (issource)
+	    srclabel = "n";
 	  if (isattack)
-	    out<<" A\n";
+	    out<<"\tA\t"<<srclabel<<"\n";
 	  else
-	    out<<" B\n";
+	    out<<"\tB\t"<<srclabel<<"\n";
 	}
       else
-	out<<" N\n";
+	out<<" N\tN\n";
     }
 }
 
@@ -510,7 +500,7 @@ void amonProcessingNfdump (char* line, double time, string file)
   double dur = end - start;
   // Normalize duration
   if (dur < 0)
-    dur = 0;
+    dur = 1;
   if (dur > 3600)
     dur = 3600;
   int pkts, bytes;
@@ -562,10 +552,7 @@ void amonProcessingNfdump (char* line, double time, string file)
       oci = pkts;
     }
   else
-    return;
-  
-  if (oci == 0)
-    return;
+    oci = pkts;
 
   amonProcessing(flow, bytes, start, end, oci, ooci, file); 
 }
@@ -663,43 +650,14 @@ void process_one_line(char* line, void* nf, double epoch, char* format, u_char* 
   // add more formats
 }
 
-//  Print out stats
-void print_stats(double epoch, bool force)
-{
-  ofstream out;
-  out.open("output.txt", std::ios_base::app);
-
-  int i = 0;
-  for(auto it = stats.begin(); it != stats.end(); it++)
-    {
-      for (auto iit = it->second.begin(); iit != it->second.end();)
-	{
-	  if (iit->first + DELAY < epoch || force)
-	    {
-	      out<<toip(it->first)<<" "<<iit->first<<" ";
-	      for (auto dit = iit->second.data.begin(); dit != iit->second.data.end(); dit++)
-		{
-		  out<<dit->first<<" "<<dit->second.srcs.size()<<" "<<dit->second.vol<<" "<<dit->second.asym<<",";
-		}
-	      out<<endl;
-	      auto dit = iit;
-	      iit++;
-	      it->second.erase(dit);
-	    }
-	  else
-	    iit++;	  
-	}
-    }
-  if (force)
-    stats.clear();
-  out.close();
-}
-
-
 // Read from file according to format
 void read_from_file(void* nf, char* format, string file)
 {
   // -1 means EOF, 0 means line without a flow
+  ofstream out;
+  out.open(file, std::ios_base::out);
+  out<<"#start_time\tend_time\ts_IP\t\ts_port\td_IP\t\td_port\tproto\tflags\tbytes\t\tpkts\tlabel\tex_src\n";
+  out.close();
   char line[MAXLINE];
   double epoch;
   int num_pkts = 0;
@@ -723,8 +681,7 @@ void read_from_file(void* nf, char* format, string file)
 	{
 	  double diff = time(0) - start;
 	  double ttime = epoch - progtime;
-	  cout<<"Processed "<<allflows<<", 1M in "<<diff<<" trace time "<<ttime<<" size "<<stats.size()<<endl;
-	  print_stats(epoch, false);
+	  cout<<"Processed "<<allflows<<", 1M in "<<diff<<" trace time "<<ttime<<endl;
 	  start = time(0);
 	}
       processedflows++;
@@ -763,6 +720,10 @@ void loadattacks(const char* fname)
       inFile>>dummy;
       inFile>>dummy;
       inFile>>a.type;
+      inFile>>dummy;
+      inFile>>dummy;
+      inFile>>dummy;
+      inFile>>dummy;
       cout<<"Attack on "<<target<<" type "<<a.type<<endl;
       attacks.push_back(a);
     }
@@ -796,13 +757,13 @@ int main (int argc, char *argv[])
   delimiters = (int*)malloc(AR_LEN*sizeof(int));
   cout.precision(17);
   char c, buf[32];
-  char *file_in = NULL;
+  char *file_in = NULL, *file_out = NULL;
   bool stream_in = false;
   char *startfile = NULL, *endfile = NULL;
   char* format;
   char* file_at;
   
-  while ((c = getopt (argc, argv, "htvr:s:e:F:a:")) != '?')
+  while ((c = getopt (argc, argv, "htvr:s:e:F:a:o:")) != '?')
     {
       if ((c == 255) || (c == -1))
 	break;
@@ -830,6 +791,9 @@ int main (int argc, char *argv[])
 	  break;
 	case 'a':
 	  file_at = strdup(optarg);
+	  break;
+	case 'o':
+	  file_out = strdup(optarg);
 	  break;
 	case 's':
 	  startfile = strdup(optarg);
@@ -967,7 +931,7 @@ int main (int argc, char *argv[])
 		sprintf(cmd,"gunzip -c %s", file);
 	      }
 	    nf = popen(cmd, "r");
-	    read_from_file(nf, format, (string)"/nfs/synology/mirkovic/FRGP/train-final/"+(string)(tmpfile + delimiters[dl-1]) + (string)".final");
+	    read_from_file(nf, format, file_out+(string)"/"+(string)(tmpfile + delimiters[dl-1]) + (string)".final");
 	    pclose(nf);
 	  }
 	cout<<"Done with the file "<<file<<" time "<<time(0)<<" flows "<<allflows<<endl;

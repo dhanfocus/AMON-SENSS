@@ -67,6 +67,7 @@
 #define MINV 1.1
 #define MINS 3600
 #define DUR 30
+#define GAP 30
 #define PKTS 1000
 #define SRCS 1
 #define NUMSTD 3
@@ -307,21 +308,27 @@ double read_one_line(void* nf, char* line)
 
       bool found = false;
       double frate = 0;
-      
-      for(int i=1; i<dl-1; i+=5) // trailing comma
+
+      // Ignore UDP floods and total traffic and just work on the rest
+      for(int i=11; i<dl-1; i+=5) // trailing comma
 	{
 	  bcell b;
 	  enum type t = (enum type)atoi(line+delimiters[i]);
 	  b.srcs = atoi(line+delimiters[i+1]);
 	  b.vol = atoi(line+delimiters[i+2]);
 	  b.flows = atoi(line+delimiters[i+3]);
-	  b.tag = stod(line+delimiters[i+4]);
+	  try {
+	    b.tag = stod(line+delimiters[i+4]);
+	  }
+	  catch (const std::out_of_range& oor) {
+	    b.tag = 0;
+	  }
 
 	  if (b.flows < PKTS)
 	    continue;
 	  if (b.srcs < SRCS)
 	    continue;
-	  if (b.tag > THRESH)
+	  if (b.tag >= THRESH)
 	    {
 	      if (attacks.find(ip) == attacks.end())
 		{
@@ -346,8 +353,30 @@ double read_one_line(void* nf, char* line)
 	{
 	  int diff = time - attacks[ip].ltime;
 	  attacks[ip].gap += diff;
-	  if (attacks[ip].gap >= DUR)
+	  if (attacks[ip].gap >= GAP)
 	    {
+	      cout<<"Potential attack on "<<toip(ip)<<" start "<<std::fixed<<attacks[ip].start<<" dur "<<attacks[ip].dur<<" rate "<<attacks[ip].rate<<" types ";
+	      int tt = 0;
+	      unsigned long total = 0;
+	      for (auto at=attacks[ip].atypes.begin(); at != attacks[ip].atypes.end(); at++)
+                    {
+                      //cout<<" type "<<at->first<<" flows "<<at->second<<endl;                                                                               
+                      if ((int)at->first == 0)
+                        {
+                          total = at->second;
+                        }
+                      else if (at->second >= 0.05*total)
+                        {
+                          tt = tt | tagmap[at->first];
+                        }
+                    }
+                  if (tt > 128 && (tt & 128))
+                    tt = tt - 128;
+                  if (tt != 4 && (tt & 4))
+                    tt = tt - 4;
+                  cout<<tt<<endl;
+
+	      
 	      if (attacks[ip].dur >= DUR)
 		{
 		  int tt = 0;
@@ -391,7 +420,14 @@ double read_one_line(void* nf, char* line)
 	{
 	  enum type t = (enum type)atoi(line+delimiters[i]);
 	  int flows = atoi(line+delimiters[i+3]);
-	  double tag = stod(line+delimiters[i+4]);
+	  double tag = 0;
+	  try
+	    {
+	      tag = stod(line+delimiters[i+4]);
+	    }
+	  catch (const std::out_of_range& oor) {
+	  }
+	  
 	  if (tag > THRESH)
 	    {
 	      if (attacks[ip].atypes.find(t) == attacks[ip].atypes.end())
@@ -546,6 +582,7 @@ int main (int argc, char *argv[])
     for (auto it = attacks.begin(); it != attacks.end(); it++)
     {
       unsigned int ip = it->first;
+      cout<<"Potential attack 2 on "<<toip(ip)<<" dur "<<attacks[ip].dur<<endl;
       if (attacks[ip].dur >= DUR)
 	{
 	  int tt = 0;

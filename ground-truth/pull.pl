@@ -1,14 +1,14 @@
 #  Specify the IP and the type to pull
 
-$usage = "$0 IP type\n";
-if ($#ARGV < 1)
+$usage = "$0 IP type file\n";
+if ($#ARGV < 2)
 {
     print $usage;
     exit 0;
 }
 $ip = $ARGV[0];
 $type = int($ARGV[1]);
-$fh = new IO::File("output.txt");
+$fh = new IO::File($ARGV[2]);
 while (<$fh>)
 {
     if ($_ !~ /^$ip /)
@@ -18,7 +18,7 @@ while (<$fh>)
     @items = split /[\s\,]/, $_;
     $time = $items[1];
 
-    for($i=2; $i<=$#items-3; $i+=4)
+    for($i=2; $i<=$#items-3; $i+=5)
     {
 	$itype = $items[$i];
 	if ($itype == $type)

@@ -117,6 +117,7 @@ int parse(char* input, char delimiter, int** array)
 
 // Current time
 double curtime = 0;
+double laststats = 0;
 double lasttime = 0;
 double lastlogtime = 0;
 double lastbintime = 0;
@@ -192,6 +193,8 @@ void
 amonProcessing(flow_t flow, double len, double start, double end, double oci, int ooci)
 {
   end = (unsigned int) end;
+  if (laststats > 0 && laststats > start)
+    start = laststats;
   // Incoming flow
   if (flow.dlocal && !flow.slocal)
     {
@@ -199,13 +202,17 @@ amonProcessing(flow_t flow, double len, double start, double end, double oci, in
 	{
 	  map<unsigned int, cell> a;
 	  stats[flow.dst] = a;
+	  //cout<<"Inserted dest "<<toip(flow.dst)<<" size "<<stats.size()<<endl;
 	}
-      for (long int t = (long int)start ; t <= (long int)end ; t += 1)
+      for(long int t = (long int) start; t <= (long int) end; t++)
 	{
 	  if (stats[flow.dst].find(t) == stats[flow.dst].end())
 	    {
+	      cell c;
+	      stats[flow.dst][t] = c;
 	      map<type,bcell> b;
 	      stats[flow.dst][t].data = b;
+
 	    }
 	}
       // Figure out labels
@@ -253,7 +260,7 @@ amonProcessing(flow_t flow, double len, double start, double end, double oci, in
       else if (flow.dport == 111)
 	labels.insert(RPC);
 
-      for (long int t = (long int)start ; t <= (long int)end ; t += 1)
+      for(long int t = (long int) start; t <= (long int) end; t++)
 	{
 	  for (auto lit = labels.begin(); lit != labels.end(); lit++)
 	    {
@@ -265,12 +272,14 @@ amonProcessing(flow_t flow, double len, double start, double end, double oci, in
 		  b.asym = 0;
 		  stats[flow.dst][t].data[ty] = b;
 		}
-	      stats[flow.dst][t].data[ty].vol += len;
+
+	      stats[flow.dst][t].data[ty].vol += (int)len;
 	      if (ty == TOTAL)
-		stats[flow.dst][t].data[ty].asym += ooci;
+		stats[flow.dst][t].data[ty].asym += (int) ooci;
 	      else
-		stats[flow.dst][t].data[ty].asym += oci;
+		stats[flow.dst][t].data[ty].asym += (int) oci;
 	      stats[flow.dst][t].data[ty].srcs.insert(flow.src);
+	      //cout<<"Dst "<<toip(flow.dst)<<" Type "<<ty<<" time "<<t<<" vol "<<stats[flow.dst][t].data[ty].vol<<endl;
 	    }
 	}
     }
@@ -482,8 +491,8 @@ void amonProcessingNfdump (char* line, double time)
     curtime = end;
   double dur = end - start;
   // Normalize duration
-  if (dur < 0)
-    dur = 0;
+  if (dur < 1)
+    dur = 1;
   if (dur > 3600)
     dur = 3600;
   double pkts, bytes;
@@ -501,10 +510,12 @@ void amonProcessingNfdump (char* line, double time)
   flow.slocal = islocal(flow.src);
   flow.dlocal = islocal(flow.dst);
   bytes = atoi(line+delimiters[22]);
+  pkts = atoi(line+delimiters[21]);
   processedbytes+=bytes;
 
   pkts = (double)(pkts/dur);
   bytes = (double)(bytes/dur);
+
   
   // Cross-traffic, do nothing
   if (!flow.slocal && !flow.dlocal)
@@ -514,8 +525,9 @@ void amonProcessingNfdump (char* line, double time)
     }
   l++;
 
-  pkts = atoi(line+delimiters[21]);
   int ooci = pkts;
+  //cout<<"Flow "<<toip(flow.src)<<":"<<flow.sport<<"->"<<toip(flow.dst)<<":"<<flow.dport<<" start "<<start<<" end "<<end<<" dur "<<dur<<" bytes "<<bytes<<" pkts "<<pkts<<endl;
+
   //cout<<std::fixed<<"Jelena "<<start<<" "<<end<<" "<<pkts<<" "<<bytes<<endl;
   /* Is this outstanding connection? For TCP, connections without 
      PUSH are outstanding. For UDP, connections that have a request
@@ -646,14 +658,17 @@ void process_one_line(char* line, void* nf, double epoch, char* format, u_char* 
 void print_stats(double epoch, bool force)
 {
   ofstream out;
-  out.open("output.txt", std::ios_base::app);
+  out.open("loutput.txt", std::ios_base::app);
   int i = 0;
   for(auto it = stats.begin(); it != stats.end(); it++)
     {
       for (auto iit = it->second.begin(); iit != it->second.end();)
 	{
+	  //cout<<"Printing stats epoch "<<std::fixed<<epoch<<" ip "<<toip(it->first)<<" time "<<iit->first<<" force "<<force<<endl;
+
 	  if (iit->first + DELAY < epoch || force)
 	    {
+	      //cout<<" will print\n";
 	      out<<toip(it->first)<<" "<<iit->first<<" ";
 	      for (auto dit = iit->second.data.begin(); dit != iit->second.data.end(); dit++)
 		{
@@ -703,6 +718,7 @@ void read_from_file(void* nf, char* format)
 	  double ttime = epoch - progtime;
 	  cout<<"Processed "<<allflows<<", 1M in "<<diff<<" trace time "<<ttime<<" size "<<stats.size()<<endl;
 	  print_stats(epoch, false);
+	  laststats = epoch;
 	  start = time(0);
 	}
       processedflows++;
@@ -888,5 +904,6 @@ int main (int argc, char *argv[])
 	  }
       }
     }
+  print_stats(curtime, true);
   return 0;
 }

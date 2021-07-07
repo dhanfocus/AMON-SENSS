@@ -28,6 +28,8 @@ while(<$fh>)
     $attacks{$i}{'target'} = $target;
     $attacks{$i}{'start'} = $start;
     $attacks{$i}{'stop'} = $stop;
+    $line =~ s/\n//g;
+
     $attacks{$i}{'line'} = $line;
     $attacks{$i}{'type'} = $type;
     $attacks{$i}{'matched'} = 0;
@@ -43,9 +45,10 @@ while(<$fh>)
     $line = $_;
     @items = split /\s+/, $line;
     $target = $items[1];
+    $sev = $items[2];
     $start = $items[10];
     $stop = $items[11];
-    $type = $items[9];
+    $type = int($items[9]);
     if ($stop == -1)
     {
 	$stop = $start + 300;
@@ -62,12 +65,17 @@ while(<$fh>)
 	if (($attacks{$i}{'start'} > $start && $attacks{$i}{'start'} < $stop) ||
 	    ($attacks{$i}{'stop'} > $start && $attacks{$i}{'stop'} < $stop) ||
 	    ($attacks{$i}{'start'} < $start && $attacks{$i}{'stop'} > $stop) ||
-	    ($attacks{$i}{'stop'}  < $start && $attacks{$i}{'stop'} + 300 > $start) ||
-	    ($attacks{$i}{'start'}  > $stop && $attacks{$i}{'start'} - 300 < $stop))
+	    ($attacks{$i}{'stop'}  < $start && $attacks{$i}{'stop'} + 300 > $start)) # ||
+	    #($attacks{$i}{'start'}  > $stop && $attacks{$i}{'start'} - 300 < $stop))
 	{
-	    #print "$_ matches $attacks{$i}{'line'}\n";
-	    $attacks{$i}{'matched'} = 1;
-	    $matched = 1;
+	    $and = (($attacks{$i}{'type'} & $type));
+	    #print "Potential match $attacks{$i}{'line'} matching type $attacks{$i}{'type'} and $type and is $and\n";
+	    if ($and != 0)
+	    {
+		#print "$_ matches $attacks{$i}{'line'}\n";
+		$attacks{$i}{'matched'} = "$sev $start $stop $type\n";
+		$matched = 1;
+	    }
 	}
     }
     if ($matched == 0)
@@ -83,6 +91,7 @@ for $i (sort {$a <=> $b} keys %attacks)
     {
 	$line = $attacks{$i}{'line'};
 	$line =~ s/types \d+/types $attacks{$i}{'type'}/;
-	print $attacks{$i}{'line'};
+	$line =~ s/\n//;
+	print "$attacks{$i}{'line'} $attacks{$i}{'matched'}";
     }
 }

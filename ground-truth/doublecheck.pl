@@ -2,6 +2,31 @@
 # Extract specific target data and generate gnuplot showing
 # which attack areas we tag. Also show what peakflow tags.
 
+# Find max of col2 in between times start and stop defined by col1 
+sub getmax
+{
+    my ($file, $col1, $col2, $start, $stop) = @_;
+    print "Look into $file col $col1 for values in $col2 between $start and $stop\n";
+    my $fh = new IO::File($file);
+    my $max = 0;
+    while(<$fh>)
+    {
+	@items = split /\s+/, $_;
+	$time = int($items[$col1-1]);
+	if ($time >= $start && $time <= $stop)
+	{
+	    $val = int($items[$col2-1]);
+	    #print "Time $time val $val max $max\n";
+	    if ($val > $max)
+	    {
+		$max = $val;
+	    }
+	}		
+    }
+    close($fh);
+    return $max;
+}
+
 $usage="$0 attack.match.file folder.w.tags attack.peakflow.new.format\n";
 
 if ($#ARGV < 2)
@@ -13,27 +38,51 @@ if ($#ARGV < 2)
 %targets = ();
 $fh = new IO::File($ARGV[0]);
 $i = 0;
+my %stats = ();
 while(<$fh>)
 {
-    #Attack on 7.29.11.61 from 1589205408 to 1589205659 dur 58 rate 188416 types 4
+    #Attack on 7.29.11.61 from 1589205408 to 1589205659 dur 58 rate 188416 types 4 high 1599791356 1599791670 24
     $line = $_;
     @items = split /\s+/, $_;
     $target = $items[2];
-    $start = $items[4];
-    $stop = $items[6];
+    $start = int($items[4]);
+    $stop = int($items[6]);
     $rate = int($items[10]);
     $type = int($items[12]);
-
-    $attacks{$i}{'target'} = $target;
+    $sev = $items[13];
+    $pstart = $items[14];
+    $pstop = $items[15];
+    if ($pstop == -1)
+    {
+	$pstop = $pstart + 300;
+    }
     
+    $attacks{$i}{'target'} = $target;    
     $attacks{$i}{'start'} = $start;
     $attacks{$i}{'stop'} = $stop;
     $attacks{$i}{'rate'} = $rate;
-
+    $attacks{$i}{'type'} = int($type);
+    $attacks{$i}{'sev'} = $sev;
+    $attacks{$i}{'pstart'} = $pstart;
+    $attacks{$i}{'pstop'} = $pstop;
+    print "Read type $type\n";
+    $stats{$target}{$start} = $i;
+    print "Pushed $i at target $target\n";
+    
     $targets{$target} = 1;
     $target =~ s/\.\d+/\.0/;
     $attacks{$i}{'shorttarget'} = $target;
-    $i++;
+
+    $i++;    
+}
+close($fh);
+my %map = ();
+$fh = new IO::File("maptags.txt");
+while(<$fh>)
+{
+    @items = split /\s+/, $_;
+    $map{$items[1]}{'val'} = $items[2];
+    $map{$items[1]}{'name'} = $items[0];
 }
 close($fh);
 $fh = new IO::File($ARGV[2]);
@@ -77,11 +126,20 @@ if (0)
 }
 my $cnt = 1;
 open(my $oh, ">", "plot.gnu");
-print $oh "set terminal pdfcairo color enhanced\n";
-print $oh "set xdata time\nset timefmt '%s'\n\n";
+open(my $ih, ">", "index.html");
+print $oh "set terminal pngcairo\n";
+print $oh "set xdata time\nset timefmt '%s'\nset format x '%H:%M'\n\n";
+print $oh "set xlabel 'time (hour:min)'\nset ylabel 'pkts per sec'\n\n";
 print $oh "set style rectangle back fc rgb \"yellow\" fs solid 1.0 border -1\n";
 for $t (keys %targets)
 {
+    $at = 0;
+    print "Target $t\n";
+    for $tim (sort {$a <=> $b} keys %{$stats{$t}})
+    {
+	$i = $stats{$t}{$tim};
+	print "Target $t attack $i from $attacks{$i}{'start'} to $attacks{$i}{'stop'}\n";
+    }
     for ($j = 1 ; $j < $cnt; $j++)
     {
 	print $oh "unset obj $j\n";
@@ -89,39 +147,55 @@ for $t (keys %targets)
     $cnt = 1;
     $rate = 0;
 
-    for $i (keys %attacks)
+    for $s (keys %{$stats{$t}})
     {
-	if ($attacks{$i}{'target'} eq $t)
+	$i = $stats{$t}{$s};
+	$r = $attacks{$i}{'rate'}/2;
+	$max = getmax("$t.txt", 2, 6,$attacks{$i}{'start'}-1000, $attacks{$i}{'stop'}+1000);
+	$max2 = $max/2;
+	print $oh "set obj $cnt rect from " . $attacks{$i}{'start'} . ",0 to " . $attacks{$i}{'stop'} . ",graph 0.5\n";	
+	$cnt++;
+	print $oh "set obj $cnt rect from " . $attacks{$i}{'pstart'} . ",graph 0.5 to " . $attacks{$i}{'pstop'} . ",graph 1 fc \"green\"\n";
+	$cnt++;
+    }
+    print $ih "<P>Target $t<p><img src=\"$t.png\" width=\"200\">\n";
+    print $oh "set output '$t.png'\n";
+    print $oh "set title 'Target $t all attacks, total'\n";
+    print $oh "unset xrange\n";
+    print $oh "set xdata time\nset timefmt '%s'\nset format x '%d/%H'\nset xlabel 'Time (day/hour)\n";
+    print $oh "plot '$t.txt' u 2:6 pt 7 ps 1 notitle\n";
+    
+    for $s (sort {$a <=> $b} keys %{$stats{$t}})
+    {
+	$i = $stats{$t}{$s};
+	print $ih "<br><img src=\"$t.$at.png\" width=\"200\">\n";
+	my ($sec, $min, $hour, $day,$month,$year) = (gmtime($attacks{$i}{'start'}))[0,1,2,3,4,5];
+	$year += 1900;
+	$month += 1;
+	print $oh "set output '$t.$at.png'\n";
+	print $oh "set format x '%H:%M'\nset xlabel 'Time (hour:min)\n";
+	print $oh "set title 'Target $t attack $at date $day/$month/$year total'\n";
+	print $oh "set xrange [$attacks{$i}{'start'}-1000:$attacks{$i}{'stop'}+1000]\n";
+	print $oh "plot '$t.txt' u 2:6 pt 7 notitle\n";
+	for ($j = 524288; $j > 0; $j = $j/2)
 	{
-	    print $oh "set obj $cnt rect from " . $attacks{$i}{'start'} . ",0 to " . $attacks{$i}{'stop'} . "," . $attacks{$i}{'rate'} . "\n";
-	    if ($rate <  $attacks{$i}{'rate'})
+	    $and = $attacks{$i}{'type'} & $j;
+	    if ($and > 0)
 	    {
-		$rate =  $attacks{$i}{'rate'};
+		if (0)
+		{
+		    print "perl pull.pl $t $map{$j}{'val'} $t.txt > $t.$j.txt type $attacks{$i}{'type'}\n";
+		    system("perl pull.pl $t $map{$j}{'val'} $t.txt > $t.$j.txt");
+		}
+		#print $ih "<br>Attack $i on $t - component  $map{$j}{'name'}\n";
+		print $ih "<img src=\"$t.$at.$j.png\" width=\"200\">\n";
+		print $oh "set output '$t.$at.$j.png'\n";
+		
+		print $oh "set title 'Target $t attack $at component $map{$j}{'name'}'\n";
+		print $oh "plot '$t.$j.txt' u 1:4 pt 7 notitle\n";
 	    }
-	    $cnt++;
 	}
-    }
-    $shorttarget = $t;
-    $shorttarget =~ s/\.\d+$/\.0/;
-    $erate = 2*$rate;
-    for $i (keys %peak)
-    {
-	if ($peak{$i}{'target'} eq $shorttarget)
-	{
-	    print $oh "set obj $cnt rect from " . $peak{$i}{'start'} . ",$rate to " . $peak{$i}{'stop'} . ",$erate fc \"green\"\n";
-            $cnt++;   
-	}	
-    }
-
-    for $i (keys %attacks)
-    {
-	if ($attacks{$i}{'target'} eq $t)
-	{
-	    print $oh "set output '$t.$i.pdf'\n";
-	    print $oh "set xrange [$attacks{$i}{'start'}-1000:$attacks{$i}{'stop'}+1000]\n";
-	    print $oh "set yrange [:$erate]\n";
-	    print $oh "plot '$t.txt' u 2:6 ps 0.2 pt 7\n";
-	}
+	$at++;
     }
 }
 
