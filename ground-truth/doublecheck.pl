@@ -66,7 +66,7 @@ while(<$fh>)
     $attacks{$i}{'pstart'} = $pstart;
     $attacks{$i}{'pstop'} = $pstop;
     print "Read type $type\n";
-    $stats{$target}{$start} = $i;
+    $stats{$target}{$start+$i} = $i;
     print "Pushed $i at target $target\n";
     
     $targets{$target} = 1;
@@ -106,7 +106,7 @@ while(<$fh>)
     $i++;
 }
 close($fh);
-if (0)
+if (1)
 {
     for $t (keys %targets)
     {
@@ -182,7 +182,7 @@ for $t (keys %targets)
 	    $and = $attacks{$i}{'type'} & $j;
 	    if ($and > 0)
 	    {
-		if (0)
+		if (1)
 		{
 		    print "perl pull.pl $t $map{$j}{'val'} $t.txt > $t.$j.txt type $attacks{$i}{'type'}\n";
 		    system("perl pull.pl $t $map{$j}{'val'} $t.txt > $t.$j.txt");

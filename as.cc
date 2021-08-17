@@ -1877,108 +1877,127 @@ int main (int argc, char *argv[])
     }
   else //if (file_in)
     {
+      cout<<"Format is "<<format<<endl;
       int isdir = 0;
-      vector<string> tracefiles;
+      vector<string> tracefiles, newfiles, *processfiles;
       vector<string> inputs;
-      struct stat s;
-      inputs.push_back(file_in);
-      int i = 0;
-      // Recursively read if there are several directories that hold the files
-      while(i < inputs.size())
+      bool first = true;
+      while(true)
 	{
-	  if(stat(inputs[i].c_str(),&s) == 0 )
+	  sleep(1);
+	  inputs.clear();
+	  newfiles.clear();
+	  struct stat s;
+	  inputs.push_back(file_in);
+	  int i = 0;
+	  // Recursively read if there are several directories that hold the files
+	  while(i < inputs.size())
 	    {
-	      if(s.st_mode & S_IFDIR )
+	      if(stat(inputs[i].c_str(),&s) == 0 )
 		{
-		  // it's a directory, read it and fill in 
-		  // list of files
-		  DIR *dir;
-		  struct dirent *ent;
-
-		  if ((dir = opendir (inputs[i].c_str())) != NULL) {
-		    // Remember all the files and directories within directory 
-		    while ((ent = readdir (dir)) != NULL) {
-		      if((strcmp(ent->d_name,".") != 0) && (strcmp(ent->d_name,"..") != 0)){
-			inputs.push_back(string(inputs[i]) + "/" + string(ent->d_name));
+		  if(s.st_mode & S_IFDIR )
+		    {
+		      // it's a directory, read it and fill in 
+		      // list of files
+		      DIR *dir;
+		      struct dirent *ent;
+		      
+		      if ((dir = opendir (inputs[i].c_str())) != NULL) {
+			// Remember all the files and directories within directory 
+			while ((ent = readdir (dir)) != NULL) {
+			  if((strcmp(ent->d_name,".") != 0) && (strcmp(ent->d_name,"..") != 0)){
+			    inputs.push_back(string(inputs[i]) + "/" + string(ent->d_name));
+			  }
+			}
+			closedir (dir);
+		      } else {
+			perror("Could not read directory ");
+			exit(1);
 		      }
 		    }
-		    closedir (dir);
-		  } else {
-		    perror("Could not read directory ");
-		    exit(1);
-		  }
+		  else if(s.st_mode & S_IFREG)
+		    {
+		      if (find(tracefiles.begin(), tracefiles.end(), inputs[i]) != tracefiles.end())
+			{
+			}
+		      else
+			{
+		      tracefiles.push_back(inputs[i]);
+		      if (!first)
+			newfiles.push_back(inputs[i]);
+			}
+		    }
+		  // Ignore other file types
 		}
-	      else if(s.st_mode & S_IFREG)
-		{
-		  tracefiles.push_back(inputs[i]);
-		}
-	      // Ignore other file types
+	      i++;
 	    }
-	  i++;
+	  inputs.clear();
+	  if (first)
+	    processfiles = &tracefiles;
+	  else
+	    processfiles = &newfiles;
+
+	  std::sort(processfiles->begin(), processfiles->end(), sortbyFilename());
+	  for (vector<string>::iterator vit=processfiles->begin(); vit != processfiles->end(); vit++)
+	    {
+	      cout<<"Files to read "<<vit->c_str()<<endl;
+	    }
+	  int started = 1;
+	  if (startfile != NULL)
+	    started = 0;
+	  double start = time(0);
+	  // Go through processfiles and read each one
+
+	  for (vector<string>::iterator vit=processfiles->begin(); vit != processfiles->end(); vit++)
+	    {
+	      const char* file = vit->c_str();
+	      
+	      if (!started && startfile && strstr(file,startfile) == NULL)
+		{
+		  continue;
+		}
+	      
+	      started = 1;
+	      
+	      // Now read from file
+	      char cmd[MAXLINE];
+	      cout<<"Reading from "<<file<<endl;
+	      firsttimeinfile = 0;
+	      
+	      if (!strcmp(format, "pcap") || !strcmp(format, "plive"))
+		{
+		  char ebuf[MAXLINE];
+		  pcap_t *pt;
+		  if (is_live)
+		    pt = pcap_open_live(file, MAXLINE, 1, 1000, ebuf);
+		  else
+		    pt = pcap_open_offline (file, ebuf);
+		  read_from_file(pt, format);
+		}
+	      else
+		{
+		  if (!strcmp(format, "nf"))
+		    {
+		      sprintf(cmd,"nfdump -r %s -o pipe 2>/dev/null", file);
+		    }
+		  else if (!strcmp(format, "ft"))
+		    {
+		      sprintf(cmd,"ft2nfdump -r %s | nfdump -r - -o pipe", file);
+		    }
+		  else if (!strcmp(format, "fr"))
+		    {
+		      sprintf(cmd,"gunzip -c %s", file);
+		    }
+		  nf = popen(cmd, "r");
+		  read_from_file(nf, format);
+		  pclose(nf);
+		}
+	      cout<<"Done with the file "<<file<<" time "<<time(0)<<" flows "<<allflows<<endl;
+	      if (endfile && strstr(file,endfile) != 0)
+		break;
+	    }
+	  first = false;
 	}
-      inputs.clear();
-
-      //tracefiles.push_back(file_in);
-      
-      std::sort(tracefiles.begin(), tracefiles.end(), sortbyFilename());
-      for (vector<string>::iterator vit=tracefiles.begin(); vit != tracefiles.end(); vit++)
-	{
-	  cout<<"Files to read "<<vit->c_str()<<endl;
-	}
-      int started = 1;
-      if (startfile != NULL)
-	started = 0;
-      double start = time(0);
-      // Go through tracefiles and read each one
-      cout<<"Format is "<<format<<endl;
-      for (vector<string>::iterator vit=tracefiles.begin(); vit != tracefiles.end(); vit++)
-      {
-	const char* file = vit->c_str();
-
-	if (!started && startfile && strstr(file,startfile) == NULL)
-	  {
-	    continue;
-	  }
-
-	started = 1;
-
-	// Now read from file
-	char cmd[MAXLINE];
-	cout<<"Reading from "<<file<<endl;
-	firsttimeinfile = 0;
-
-	if (!strcmp(format, "pcap") || !strcmp(format, "plive"))
-	  {
-	    char ebuf[MAXLINE];
-	    pcap_t *pt;
-	    if (is_live)
-	      pt = pcap_open_live(file, MAXLINE, 1, 1000, ebuf);
-	    else
-	      pt = pcap_open_offline (file, ebuf);
-	    read_from_file(pt, format);
-	  }
-	else
-	  {
-	    if (!strcmp(format, "nf"))
-	      {
-		sprintf(cmd,"nfdump -r %s -o pipe 2>/dev/null", file);
-	      }
-	    else if (!strcmp(format, "ft"))
-	      {
-		sprintf(cmd,"ft2nfdump -r %s | nfdump -r - -o pipe", file);
-	      }
-	    else if (!strcmp(format, "fr"))
-	      {
-		sprintf(cmd,"gunzip -c %s", file);
-	      }
-	    nf = popen(cmd, "r");
-	    read_from_file(nf, format);
-	    pclose(nf);
-	  }
-	cout<<"Done with the file "<<file<<" time "<<time(0)<<" flows "<<allflows<<endl;
-	if (endfile && strstr(file,endfile) != 0)
-	  break;
-      }
     }
   save_history();
   return 0;

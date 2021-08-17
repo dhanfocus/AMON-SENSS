@@ -32,13 +32,14 @@ while(<$fh>)
 
     $attacks{$i}{'line'} = $line;
     $attacks{$i}{'type'} = $type;
-    $attacks{$i}{'matched'} = 0;
+    $attacks{$i}{'matched'} = "";
     
     #print "Attack $i on $target start $start stop $stop\n";
     $i++;
 }
 close($fh);
 $fh = new IO::File($ARGV[1]);
+$maxat = scalar(keys %attacks);
 while(<$fh>)
 {
     #11819559 2.36.86.0 low 7830000000 962720 20200207 16:45:0 - 17:55:0 4 1581122865 -1
@@ -57,6 +58,11 @@ while(<$fh>)
     $matched = 0;
     for $i (sort {$a <=> $b} keys %attacks)
     {
+	# Do not match with new attacks
+	if ($i >= $maxat)
+	{
+	    next;
+	}
 	if ($attacks{$i}{'target'} ne $target)
 	{
 	    next;
@@ -72,8 +78,18 @@ while(<$fh>)
 	    #print "Potential match $attacks{$i}{'line'} matching type $attacks{$i}{'type'} and $type and is $and\n";
 	    if ($and != 0)
 	    {
-		#print "$_ matches $attacks{$i}{'line'}\n";
-		$attacks{$i}{'matched'} = "$sev $start $stop $type\n";
+		#print "$_ matches $attacks{$i}{'line'} matched for $i is $attacks{$i}{'matched'}\n";
+		if ($attacks{$i}{'matched'} eq "")
+		{
+		    $attacks{$i}{'matched'} = "$sev $start $stop $type\n";
+		}
+		else
+		{
+		    $k = scalar(keys %attacks);
+		    #print "Adding attack $k with $sev $start $stop $type\n";
+		    $attacks{$k}{'line'} = $attacks{$i}{'line'};
+		    $attacks{$k}{'matched'} = "$sev $start $stop $type\n";
+		}
 		$matched = 1;
 	    }
 	}
@@ -87,7 +103,7 @@ close($fh);
 
 for $i (sort {$a <=> $b} keys %attacks)
 {
-    if ($attacks{$i}{'matched'})
+    if ($attacks{$i}{'matched'} ne "")
     {
 	$line = $attacks{$i}{'line'};
 	$line =~ s/types \d+/types $attacks{$i}{'type'}/;
