@@ -403,7 +403,7 @@ void calc_cusum(unsigned int ip, enum type t, struct bcell value, unsigned int t
 	  if (ct > 0 && std <= 4096)
 	    std = 4096;
 	  double tmp = metrics[ip][t].records[ct].cusum  + (data - metrics[ip][t].records[ct].last)/std;
-	  //cout<<"ctype "<<t<<" ct "<<ct<<" Calculating cusum time "<<time<<" old value "<<metrics[ip][t].records[ct].cusum<<" new data "<<data<<" old data "<< metrics[ip][t].records[ct].last<<" std "<<std<<" samples "<<metrics[ip][t].n<<" new value "<<tmp<<endl;
+	  cout<<"ctype "<<t<<" ct "<<ct<<" Calculating cusum time "<<time<<" old value "<<metrics[ip][t].records[ct].cusum<<" new data "<<data<<" old data "<< metrics[ip][t].records[ct].last<<" std "<<std<<" samples "<<metrics[ip][t].n<<" new value "<<tmp<<endl;
 	  metrics[ip][t].records[ct].cusum = tmp;
 	  if (tmp > 0)
 	    {
@@ -419,6 +419,7 @@ void calc_cusum(unsigned int ip, enum type t, struct bcell value, unsigned int t
       if (metrics[ip][t].records[ct].cusum < THRESH)
 	metrics[ip][t].records[ct].last = data;
 
+      cout<<"Cusum is "<<metrics[ip][t].records[ct].cusum<<" tag is "<< stats[ip].statsdata[time].data[t].tag<<endl;
       stats[ip].statsdata[time].data[t].tag += metrics[ip][t].records[ct].cusum;
     }
 }
@@ -454,24 +455,25 @@ void update_means(unsigned int ip, enum type t, struct bcell value, unsigned int
 	{
 	  //cout<<" anomalous\n";
 	  // Tag as abnormal
-	  //cout<<ip<<" "<<t<<" "<<ct<<" anomalous \n";
+	  cout<<ip<<" "<<t<<" "<<ct<<" anomalous \n";
 	  tag = tag | (int)pow(2,(int)ct);
-	  //cout<<"Anomalous ip "<<ip<<" type "<<t<<" measure "<<ct<<" time "<<time<<" cusum "<< metrics[ip][t].records[ct].cusum<<" data "<<data<<endl;
+	  cout<<"Anomalous ip "<<ip<<" type "<<t<<" measure "<<ct<<" time "<<time<<" cusum "<< metrics[ip][t].records[ct].cusum<<" data "<<data<<endl;
 	}
     }
   if (tag > 0)
     {
       //stats[ip].statsdata[time].data[t].tag = tag;
-      //cout<<"IP "<<ip<<" time "<<time<<" type "<<t<<" tag "<<tag<<endl;
+      cout<<"IP "<<ip<<" time "<<time<<" type "<<t<<" tag "<<tag<<endl;
     }
   else
     {
       double oldn = metrics[ip][t].n;
       // Age count
-      //cout<<"Updating n from "<<metrics[ip][t].n<<" age "<<age<<" new n ";
+      age = 1;
+      cout<<"Updating n from "<<metrics[ip][t].n<<" age "<<age<<" new n ";
       metrics[ip][t].n *= age;
       metrics[ip][t].n += 1;
-      //cout<<metrics[ip][t].n<<" type "<<t<<" srcs "<<value.srcs<<" vol "<<value.vol<<" flows "<<value.flows<<endl;
+      cout<<metrics[ip][t].n<<" type "<<t<<" srcs "<<value.srcs<<" vol "<<value.vol<<" flows "<<value.flows<<endl;
       for (enum celltype ct = SRC; ct <= FLOW; ct=(enum celltype)((int)ct+ 1))
 	{
 	  double data;
@@ -492,13 +494,13 @@ void update_means(unsigned int ip, enum type t, struct bcell value, unsigned int
 	    }
 	  else
 	    {
-	      // cout<<"type "<<t<<" ct "<<ct<<" Sum is "<<metrics[ip][t].records[ct].sum<<" aged and added "<<data<<" new sum ";
+	      cout<<"type "<<t<<" ct "<<ct<<" Sum is "<<metrics[ip][t].records[ct].sum<<" aged and added "<<data<<" new sum ";
 	      
 	      metrics[ip][t].records[ct].sum *= age;
 	      metrics[ip][t].records[ct].ss *= age;
 
 	      metrics[ip][t].records[ct].sum += data;
-	      //cout<<metrics[ip][t].records[ct].sum<<" n is "<<metrics[ip][t].n<<" mean "<<metrics[ip][t].records[ct].mean<<endl;
+	      cout<<metrics[ip][t].records[ct].sum<<" n is "<<metrics[ip][t].n<<" mean "<<metrics[ip][t].records[ct].mean<<endl;
 	      metrics[ip][t].records[ct].ss += data*data;
 	      // cout<< metrics[ip][t].records[ct].ss<<endl;
 
@@ -564,7 +566,7 @@ void tag_flows()
 	      value.vol = 0;
 	      value.flows = 0;
 	      value = cit->second;
-	      //cout<<"Time "<<time<<" type "<<t<<" srcs "<<value.srcs<<" vol "<<value.vol<<" flows "<<value.flows<<endl;
+	      cout<<"\n\nTime "<<time<<" type "<<t<<" srcs "<<value.srcs<<" vol "<<value.vol<<" flows "<<value.flows<<endl;
 	      calc_cusum(ip, t, value, time);
 	      update_means(ip, t, value, time);
 	    }

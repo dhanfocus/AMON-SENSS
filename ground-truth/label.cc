@@ -526,6 +526,8 @@ void amonProcessingNfdump (char* line, double time)
   l++;
 
   int ooci = pkts;
+  if (flow.src == 1093564320 || flow.dst == 1093564320)
+    cout<<saveline<<" dur "<<dur<<" ooci "<<ooci<<" bytes "<<bytes<<endl;
   //cout<<"Flow "<<toip(flow.src)<<":"<<flow.sport<<"->"<<toip(flow.dst)<<":"<<flow.dport<<" start "<<start<<" end "<<end<<" dur "<<dur<<" bytes "<<bytes<<" pkts "<<pkts<<endl;
 
   //cout<<std::fixed<<"Jelena "<<start<<" "<<end<<" "<<pkts<<" "<<bytes<<endl;
