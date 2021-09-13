@@ -67,6 +67,8 @@
 #define DELAY 600
 using namespace std;
 
+char *file_out = NULL;
+
 
 // Global variables
 bool resetrunning = false;
@@ -81,7 +83,11 @@ string label;
 struct bcell {
   set<int> srcs;
   long int vol;
-  int asym;
+  int pkts;
+  set<int> dsts;
+  long int rvol;
+  int rpkts;
+  
 };
 
 enum type {TOTAL, UDPT, ICMPT,  SYNT, ACKT, NTPR, DNSR, FRAG, LDAPR, SYNACKT, RSTT, MDNS, CGEN, L2TP, MCHD, DNS, RPC, USERDEF};
@@ -269,28 +275,115 @@ amonProcessing(flow_t flow, double len, double start, double end, double oci, in
 		{
 		  bcell b;
 		  b.vol = 0;
-		  b.asym = 0;
+		  b.pkts = 0;
+		  b.rvol = 0;
+		  b.rpkts = 0;
 		  stats[flow.dst][t].data[ty] = b;
 		}
 
 	      stats[flow.dst][t].data[ty].vol += (int)len;
 	      if (ty == TOTAL)
-		stats[flow.dst][t].data[ty].asym += (int) ooci;
+		stats[flow.dst][t].data[ty].pkts += (int) ooci;
 	      else
-		stats[flow.dst][t].data[ty].asym += (int) oci;
+		stats[flow.dst][t].data[ty].pkts += (int) oci;
 	      stats[flow.dst][t].data[ty].srcs.insert(flow.src);
+	      //cout<<"Dst "<<toip(flow.dst)<<" Type "<<ty<<" time "<<t<<" vol "<<stats[flow.dst][t].data[ty].vol<<endl;
+	    }
+	}
+    }
+  else
+    // Outgoing flow
+    if (flow.slocal && !flow.dlocal)
+    {
+      if (stats.find(flow.src) == stats.end())
+	{
+	  map<unsigned int, cell> a;
+	  stats[flow.src] = a;
+	  //cout<<"Inserted dest "<<toip(flow.dst)<<" size "<<stats.size()<<endl;
+	}
+      for(long int t = (long int) start; t <= (long int) end; t++)
+	{
+	  if (stats[flow.src].find(t) == stats[flow.src].end())
+	    {
+	      cell c;
+	      stats[flow.src][t] = c;
+	      map<type,bcell> b;
+	      stats[flow.src][t].data = b;
+
+	    }
+	}
+      // Figure out labels
+      set<enum type> labels;
+      labels.insert(TOTAL);
+
+      // Fragments
+      if (flow.sport == 0 && flow.proto != ICMP)
+	labels.insert(FRAG);
+
+      // Transport
+      if (flow.proto == UDP)
+	labels.insert(UDPT);
+      else if (flow.proto == ICMP)
+	labels.insert(ICMPT);
+      else if (flow.flags == 2)
+	labels.insert(SYNT);
+      else if (flow.flags == 16)
+	labels.insert(ACKT);
+      else if (flow.flags == 18)
+	labels.insert(SYNACKT);
+      else if (flow.flags & 4 != 0)
+	labels.insert(RSTT);
+
+      // Application
+      if (flow.dport == 123)
+	labels.insert(NTPR);
+      else if (flow.dport == 19)
+	labels.insert(CGEN);
+      else if (flow.dport == 53)
+	labels.insert(DNSR);
+      else if (flow.dport == 389)
+	labels.insert(LDAPR);
+      else if (flow.dport == 5353)
+	labels.insert(MDNS);
+      else if (flow.dport == 19)
+	labels.insert(CGEN);
+      else if (flow.dport == 11211)
+	labels.insert(MCHD);
+      else if (flow.dport == 1701)
+	labels.insert(L2TP);
+      
+      if (flow.sport == 53)
+	labels.insert(DNS);
+      else if (flow.sport == 111)
+	labels.insert(RPC);
+
+      for(long int t = (long int) start; t <= (long int) end; t++)
+	{
+	  for (auto lit = labels.begin(); lit != labels.end(); lit++)
+	    {
+	      enum type ty = *lit;	  
+	      if (stats[flow.src][t].data.find(ty) == stats[flow.src][t].data.end())
+		{
+		  bcell b;
+		  b.rvol = 0;
+		  b.rpkts = 0;
+		  b.vol = 0;
+		  b.pkts = 0;
+		  stats[flow.src][t].data[ty] = b;
+		}
+
+	      stats[flow.src][t].data[ty].rvol += (int)len;
+	      if (ty == TOTAL)
+		stats[flow.src][t].data[ty].rpkts += (int) ooci;
+	      else
+		stats[flow.src][t].data[ty].rpkts += (int) oci;
+	      stats[flow.src][t].data[ty].dsts.insert(flow.dst);
 	      //cout<<"Dst "<<toip(flow.dst)<<" Type "<<ty<<" time "<<t<<" vol "<<stats[flow.dst][t].data[ty].vol<<endl;
 	    }
 	}
     }
 }
 
-
-// Update statistics
-void update_stats(cell* c)
-{
-
-}
 
 	
 // Read pcap packet format
@@ -526,8 +619,8 @@ void amonProcessingNfdump (char* line, double time)
   l++;
 
   int ooci = pkts;
-  if (flow.src == 1093564320 || flow.dst == 1093564320)
-    cout<<saveline<<" dur "<<dur<<" ooci "<<ooci<<" bytes "<<bytes<<endl;
+  //if (flow.src == 1093564320 || flow.dst == 1093564320)
+  //cout<<saveline<<" dur "<<dur<<" ooci "<<ooci<<" bytes "<<bytes<<endl;
   //cout<<"Flow "<<toip(flow.src)<<":"<<flow.sport<<"->"<<toip(flow.dst)<<":"<<flow.dport<<" start "<<start<<" end "<<end<<" dur "<<dur<<" bytes "<<bytes<<" pkts "<<pkts<<endl;
 
   //cout<<std::fixed<<"Jelena "<<start<<" "<<end<<" "<<pkts<<" "<<bytes<<endl;
@@ -579,6 +672,7 @@ printHelp (void)
   printf ("\t fr - Flowride format in a file\n");
   printf ("-s <file>                      Start from this given file in the input folder\n");
   printf ("-e <file>                      End with this given file in the input folder\n");
+  printf ("-o <file>                      Store output in this file\n");
   printf ("-v                             Verbose\n");
 }
 
@@ -660,7 +754,8 @@ void process_one_line(char* line, void* nf, double epoch, char* format, u_char* 
 void print_stats(double epoch, bool force)
 {
   ofstream out;
-  out.open("loutput.txt", std::ios_base::app);
+  cout<<"Printing stats "<<epoch<<endl;
+  out.open(file_out, std::ios_base::app);
   int i = 0;
   for(auto it = stats.begin(); it != stats.end(); it++)
     {
@@ -674,7 +769,7 @@ void print_stats(double epoch, bool force)
 	      out<<toip(it->first)<<" "<<iit->first<<" ";
 	      for (auto dit = iit->second.data.begin(); dit != iit->second.data.end(); dit++)
 		{
-		  out<<dit->first<<" "<<dit->second.srcs.size()<<" "<<dit->second.vol<<" "<<dit->second.asym<<",";
+		  out<<dit->first<<" "<<dit->second.srcs.size()<<" "<<dit->second.vol<<" "<<dit->second.pkts<<" "<<dit->second.dsts.size()<<" "<<dit->second.rvol<<" "<<dit->second.rpkts<<",";
 		}
 	      out<<endl;
 	      auto dit = iit;
@@ -740,7 +835,7 @@ int main (int argc, char *argv[])
   char *startfile = NULL, *endfile = NULL;
   char* format;
   
-  while ((c = getopt (argc, argv, "hvr:s:e:F:")) != '?')
+  while ((c = getopt (argc, argv, "hvr:s:e:F:o:")) != '?')
     {
       if ((c == 255) || (c == -1))
 	break;
@@ -763,6 +858,9 @@ int main (int argc, char *argv[])
 	  file_in = strdup(optarg);
 	  label = file_in;
 	  break;
+	case 'o':
+	  file_out = strdup(optarg);
+	  break;
 	case 's':
 	  startfile = strdup(optarg);
 	  cout<<"Start file "<<startfile<<endl;
@@ -775,6 +873,11 @@ int main (int argc, char *argv[])
 	  verbose = 1;
 	  break;
 	}
+    }
+  if (file_out == NULL)
+    {
+      cerr<<"You must specify the output file\n";
+      exit(-1);
     }
   if (file_in == NULL && stream_in == 0)
     {

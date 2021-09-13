@@ -66,7 +66,7 @@
 #define DAY 86400
 #define MINV 1.1
 #define MINS 3600
-#define DUR 30
+#define DUR 10
 #define GAP 30
 #define PKTS 1000
 #define SRCS 1
