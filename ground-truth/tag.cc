@@ -70,7 +70,7 @@
 #define THRESH 15
 #define NUMSTD 3
 #define LIMITSIZE 5
-
+#define BETA 0.9
 using namespace std;
 
 
@@ -415,9 +415,9 @@ void calc_cusum(unsigned int ip, enum type t, struct bcell value, unsigned int t
 	  double std = metrics[ip][t].records[ct].stdev;
 	  if (std < 1)
 	    std = 1;
-	  if (ct > 0 && std <= 4096)
+	  if (ct != SRC && ct != DST && std <= 4096)
 	    std = 4096;
-	  double tmp = metrics[ip][t].records[ct].cusum  + (data - metrics[ip][t].records[ct].last)/std;
+	  double tmp = metrics[ip][t].records[ct].cusum*BETA  + (data - metrics[ip][t].records[ct].last)/std;
 	  //cout<<"ctype "<<t<<" ct "<<ct<<" Calculating cusum time "<<time<<" old value "<<metrics[ip][t].records[ct].cusum<<" new data "<<data<<" old data "<< metrics[ip][t].records[ct].last<<" std "<<std<<" samples "<<metrics[ip][t].n<<" new value "<<tmp<<endl;
 	  metrics[ip][t].records[ct].cusum = tmp;
 	  if (tmp > 0)
@@ -481,13 +481,13 @@ void update_means(unsigned int ip, enum type t, struct bcell value, unsigned int
 	    tag = tag | (int)pow(2,(int)ct);
 	  else
 	    rtag = rtag | (int)pow(2,(int)ct - (int)DST);
-	  cout<<"Anomalous ip "<<ip<<" type "<<t<<" measure "<<ct<<" time "<<time<<" cusum "<< metrics[ip][t].records[ct].cusum<<" data "<<data<<endl;
+	  //cout<<"Anomalous ip "<<ip<<" type "<<t<<" measure "<<ct<<" time "<<time<<" cusum "<< metrics[ip][t].records[ct].cusum<<" data "<<data<<endl;
 	}
     }
   stats[ip].statsdata[time].data[t].tag = tag;
   stats[ip].statsdata[time].data[t].rtag = rtag;
        
-  cout<<"IP "<<ip<<" time "<<time<<" type "<<t<<" tag "<<tag<<" rtag "<<rtag<<endl;
+  //cout<<"IP "<<ip<<" time "<<time<<" type "<<t<<" tag "<<tag<<" rtag "<<rtag<<endl;
   if (tag == 0 && rtag == 0)
     {
       double oldn = metrics[ip][t].n;
@@ -727,7 +727,7 @@ int main (int argc, char *argv[])
   for (vector<string>::iterator vit=tracefiles.begin(); vit != tracefiles.end(); vit++)
     {
       const char* file = vit->c_str();
-      
+      cout<<"Considering file "<<file<<" started "<<started<<" startfile "<<(startfile == 0)<<endl;
       if (!started && startfile && strstr(file,startfile) == NULL)
 	{
 	  continue;
@@ -742,8 +742,25 @@ int main (int argc, char *argv[])
       sprintf(cmd,"gunzip -c %s", file);
       nf = popen(cmd, "r");
       read_from_file(nf, format, file);
-      tag_flows();
+      tag_flows();      
       print_stats((string)file+".tags");
+      sprintf(cmd,"%s.tags", file);
+      char* argv[256];
+      argv[0] = "gzip";
+      argv[1] = cmd;
+      argv[2] = NULL;
+      int pid = fork();
+      if (pid == 0)
+	{
+	  if (execvp(argv[0], argv) < 0) {  
+	    cout<<"Zip failed "<<cmd<<endl;
+	    exit(-1);
+	  }
+	}
+      else
+	{
+	}
+
     }
   return 0;
 }

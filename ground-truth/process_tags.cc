@@ -89,8 +89,12 @@ string label;
 struct bcell {
   int srcs;
   int vol;
-  int flows;
+  int pkts;
   int tag;
+  int dsts;
+  int rvol;
+  int rpkts;
+  int rtag;
 };
 
 enum type {TOTAL, UDPT, ICMPT,  SYNT, ACKT, NTPR, DNSR, FRAG, LDAPR, SYNACKT, RSTT, MDNS, CGEN, L2TP, MCHD, DNS, RPC};
@@ -252,6 +256,7 @@ printHelp (void)
 
   printf ("-h                             Print this help\n");
   printf ("-r <file>                      Input is in given file gzipped\n");
+  printf ("-t thresh                      Threshold value for attack\n");
 }
 
 
@@ -310,24 +315,30 @@ double read_one_line(void* nf, char* line)
       double frate = 0;
 
       // Ignore UDP floods and total traffic and just work on the rest
-      for(int i=11; i<dl-1; i+=5) // trailing comma
+      for(int i=19; i<dl-1; i+=9) // trailing comma
 	{
 	  bcell b;
 	  enum type t = (enum type)atoi(line+delimiters[i]);
+	  //cout<<"Line "<<saveline<<" type "<<t<<" i "<<i<<" dl "<<dl<<endl;
 	  b.srcs = atoi(line+delimiters[i+1]);
 	  b.vol = atoi(line+delimiters[i+2]);
-	  b.flows = atoi(line+delimiters[i+3]);
+	  b.pkts = atoi(line+delimiters[i+3]);
 	  try {
 	    b.tag = stod(line+delimiters[i+4]);
 	  }
 	  catch (const std::out_of_range& oor) {
 	    b.tag = 0;
 	  }
+	  b.dsts = atoi(line+delimiters[i+5]);
+	  b.rvol = atoi(line+delimiters[i+6]);
+	  b.rpkts = atoi(line+delimiters[i+7]);
+	  try {
+	    b.rtag = stod(line+delimiters[i+8]);
+	  }
+	  catch (const std::out_of_range& oor) {
+	    b.rtag = 0;
+	  }
 
-	  if (b.flows < PKTS)
-	    continue;
-	  if (b.srcs < SRCS)
-	    continue;
 	  if (b.tag >= THRESH)
 	    {
 	      if (attacks.find(ip) == attacks.end())
@@ -337,15 +348,15 @@ double read_one_line(void* nf, char* line)
 		  a.ltime = time;
 		  a.end = time;
 		  a.dur = 1;
-		  a.rate = b.flows;
+		  a.rate = b.pkts;
 		  a.gap = 0;
 		  attacks[ip] = a;
 		}
 	      else
 		{
 		  found = true;
-		  if (frate < b.flows)
-		    frate = b.flows;
+		  if (frate < b.pkts)
+		    frate = b.pkts;
 		}
 	    }
 	}
@@ -416,10 +427,10 @@ double read_one_line(void* nf, char* line)
 	attacks[ip].dur++;
 	attacks[ip].ltime = time;
 	}
-      for(int i=1; i<dl-1; i+=5) // trailing comma
+      for(int i=19; i<dl-1; i+=9) // trailing comma
 	{
 	  enum type t = (enum type)atoi(line+delimiters[i]);
-	  int flows = atoi(line+delimiters[i+3]);
+	  int pkts = atoi(line+delimiters[i+3]);
 	  double tag = 0;
 	  try
 	    {
@@ -431,9 +442,9 @@ double read_one_line(void* nf, char* line)
 	  if (tag > THRESH)
 	    {
 	      if (attacks[ip].atypes.find(t) == attacks[ip].atypes.end())
-		attacks[ip].atypes[t] = flows;
+		attacks[ip].atypes[t] = pkts;
 	      else
-		attacks[ip].atypes[t] += flows;
+		attacks[ip].atypes[t] += pkts;
 	    }
 	}
       return 1;
@@ -461,9 +472,6 @@ void read_from_file(void* nf, char* format)
 int main (int argc, char *argv[])
 {
   delimiters = (int*)malloc(AR_LEN*sizeof(int));
-  allowed[SRC] = 10;
-  allowed[VOL] = 10000;
-  allowed[FLOW] = 100;
   
   char c, buf[32];
   char *file_in = NULL;
