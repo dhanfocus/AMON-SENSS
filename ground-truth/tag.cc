@@ -67,9 +67,9 @@
 #define MINV 1.1
 #define MINS 3600
 
-#define THRESH 15
+#define THRESH 5
 #define NUMSTD 3
-#define LIMITSIZE 5
+#define LIMITSIZE 50
 #define BETA 0.9
 using namespace std;
 
@@ -198,6 +198,7 @@ double curtime = 0;
 double lasttime = 0;
 double lastlogtime = 0;
 double lastbintime = 0;
+bool started = false;
 unsigned int starttime = 0;
 unsigned int endtime = 0;
  
@@ -347,8 +348,11 @@ double read_one_line(void* nf, char* line)
     {
       unsigned int ip = todec(line);
       unsigned int time = atol(line+delimiters[0]);
-      if (starttime == 0 || time < starttime)
-	starttime = time;
+      if (starttime == 0)
+	{
+	  starttime = time;
+	  cout<<"Starttime "<<starttime<<endl;
+	}
       if (endtime < time)
 	{
 	  endtime = time;
@@ -382,7 +386,7 @@ double read_one_line(void* nf, char* line)
 	  if (stats[ip].maxs < b.srcs)
 	    stats[ip].maxs = b.srcs;
 	}
-      return 1;
+      return time;
     }
   else
     return 0;
@@ -410,29 +414,33 @@ void calc_cusum(unsigned int ip, enum type t, struct bcell value, unsigned int t
       else if (ct == RPKTS)
 	data = value.rpkts;
 
-      if(starttime > 0 && time - starttime >= MINS) //metrics[ip][t].stime >= MINS)
+      if(starttime > 0 && (long)time - starttime >= MINS) //metrics[ip][t].stime >= MINS)
 	{
+	  started = true;
+	  long diff = (long)time - starttime;
 	  double std = metrics[ip][t].records[ct].stdev;
 	  if (std < 1)
 	    std = 1;
 	  if (ct != SRC && ct != DST && std <= 4096)
 	    std = 4096;
 	  double tmp = metrics[ip][t].records[ct].cusum*BETA  + (data - metrics[ip][t].records[ct].last)/std;
-	  //cout<<"ctype "<<t<<" ct "<<ct<<" Calculating cusum time "<<time<<" old value "<<metrics[ip][t].records[ct].cusum<<" new data "<<data<<" old data "<< metrics[ip][t].records[ct].last<<" std "<<std<<" samples "<<metrics[ip][t].n<<" new value "<<tmp<<endl;
+	  //cout<<"IP "<<toip(ip)<<" ctype "<<t<<" ct "<<ct<<" Calculating cusum time "<<time<<" starttime "<<starttime<<" diff "<<diff<<" old value "<<metrics[ip][t].records[ct].cusum<<" new data "<<data<<" old data "<< metrics[ip][t].records[ct].last<<" std "<<std<<" samples "<<metrics[ip][t].n<<" new value "<<tmp<<endl;
 	  metrics[ip][t].records[ct].cusum = tmp;
 	  if (tmp > 0)
 	    {
 	      if (metrics[ip][t].records[ct].cusum > 2*THRESH)
-		  metrics[ip][t].records[ct].cusum = 2*THRESH;
+		metrics[ip][t].records[ct].cusum = 2*THRESH;
 	    }
 	  else
 	    {
 	      if (metrics[ip][t].records[ct].cusum < -2*THRESH)
-		  metrics[ip][t].records[ct].cusum = -2*THRESH;
+		metrics[ip][t].records[ct].cusum = -2*THRESH;
 	    }
 	}
       if (metrics[ip][t].records[ct].cusum < THRESH)
 	metrics[ip][t].records[ct].last = data;
+      else
+	metrics[ip][t].records[ct].last = metrics[ip][t].records[ct].mean;
 
       //cout<<"Cusum is "<<metrics[ip][t].records[ct].cusum<<" tag is "<< stats[ip].statsdata[time].data[t].tag<<endl;
       //stats[ip].statsdata[time].data[t].tag += metrics[ip][t].records[ct].cusum;
@@ -474,6 +482,7 @@ void update_means(unsigned int ip, enum type t, struct bcell value, unsigned int
 	}
       else
 	{
+	  //cout<<"IP "<<ip<<" time "<<time<<" type "<<t<<" ct "<<ct<<" value "<<data<<" samples "<<metrics[ip][t].n<<" max "<<metrics[ip][t].records[ct].max<<" mean "<<metrics[ip][t].records[ct].mean<<" std "<<std<<" cusum "<< metrics[ip][t].records[ct].cusum;
 	  //cout<<" anomalous\n";
 	  // Tag as abnormal
 	  //cout<<ip<<" "<<t<<" "<<ct<<" anomalous \n";
@@ -557,10 +566,10 @@ void tag_flows()
   for(auto it = stats.begin(); it != stats.end(); it++)
     {
       unsigned int ip = it->first;
-      cout<<"Tagging "<<ip<<" samples "<<stats[ip].statsdata.size()<<endl;
       // See if we need to tag or not
       if (stats[ip].statsdata.size() < LIMITSIZE)
 	continue;
+      cout<<"Tagging "<<ip<<" samples "<<stats[ip].statsdata.size()<<endl;
       // Initialize
       if (metrics.find(ip) == metrics.end())
 	{
@@ -625,7 +634,8 @@ void read_from_file(void* nf, char* format, string file_in)
       count ++;
       if (count >= 1000000)
 	{
-	  cout<<"Tagging\n\n";
+	  long diff = (long)endtime - starttime;
+	  cout<<"Tagging at time "<<std::fixed<<endtime<<" elapsed "<<diff<<"\n\n";
 	  tag_flows();
 	  print_stats((string)file_in+".tags");
 	  count = 0;

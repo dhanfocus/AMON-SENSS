@@ -18,12 +18,12 @@ while (<$fh>)
     @items = split /[\s\,]/, $_;
     $time = $items[1];
 
-    for($i=2; $i<=$#items-7; $i+=7)
+    for($i=2; $i<=$#items-1; $i+=9)
     {
 	$itype = $items[$i];
 	if ($itype == $type)
 	{
-	    print "$time $items[$i+1] $items[$i+2] $items[$i+3] $items[$i+4] $items[$i+5] $items[$i+6]\n";
+	    print "$time $items[$i+1] $items[$i+2] $items[$i+3] $items[$i+4] $items[$i+5] $items[$i+6] $items[$i+7] $items[$i+8]\n";
 	}
     }
 }

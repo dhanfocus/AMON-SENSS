@@ -67,7 +67,7 @@
 #define MINV 1.1
 #define MINS 3600
 #define DUR 10
-#define GAP 30
+#define GAP 10
 #define PKTS 1000
 #define SRCS 1
 #define NUMSTD 3
@@ -256,7 +256,6 @@ printHelp (void)
 
   printf ("-h                             Print this help\n");
   printf ("-r <file>                      Input is in given file gzipped\n");
-  printf ("-t thresh                      Threshold value for attack\n");
 }
 
 
@@ -290,6 +289,12 @@ void read_tags()
     }
  }
 
+bool anomalous(int tag)
+{
+  //return (tag >= THRESH);
+  return ((tag == 7)); // || (tag == 5) || (tag == 7));
+}
+
 // Read one line from file according to format
 double read_one_line(void* nf, char* line)
 {
@@ -315,11 +320,12 @@ double read_one_line(void* nf, char* line)
       double frate = 0;
 
       // Ignore UDP floods and total traffic and just work on the rest
-      for(int i=19; i<dl-1; i+=9) // trailing comma
+      for(int i=1; i<dl-1; i+=9) // trailing comma
 	{
 	  bcell b;
 	  enum type t = (enum type)atoi(line+delimiters[i]);
-	  //cout<<"Line "<<saveline<<" type "<<t<<" i "<<i<<" dl "<<dl<<endl;
+	  if (t == 0 || t == 1)
+	    continue;
 	  b.srcs = atoi(line+delimiters[i+1]);
 	  b.vol = atoi(line+delimiters[i+2]);
 	  b.pkts = atoi(line+delimiters[i+3]);
@@ -339,7 +345,7 @@ double read_one_line(void* nf, char* line)
 	    b.rtag = 0;
 	  }
 
-	  if (b.tag >= THRESH)
+	  if (anomalous(b.tag))
 	    {
 	      if (attacks.find(ip) == attacks.end())
 		{
@@ -366,7 +372,6 @@ double read_one_line(void* nf, char* line)
 	  attacks[ip].gap += diff;
 	  if (attacks[ip].gap >= GAP)
 	    {
-	      cout<<"Potential attack on "<<toip(ip)<<" start "<<std::fixed<<attacks[ip].start<<" dur "<<attacks[ip].dur<<" rate "<<attacks[ip].rate<<" types ";
 	      int tt = 0;
 	      unsigned long total = 0;
 	      for (auto at=attacks[ip].atypes.begin(); at != attacks[ip].atypes.end(); at++)
@@ -385,7 +390,7 @@ double read_one_line(void* nf, char* line)
                     tt = tt - 128;
                   if (tt != 4 && (tt & 4))
                     tt = tt - 4;
-                  cout<<tt<<endl;
+                  //cout<<tt<<endl;
 
 	      
 	      if (attacks[ip].dur >= DUR)
@@ -395,7 +400,7 @@ double read_one_line(void* nf, char* line)
 		  unsigned long total = 0;
 		  for (auto at=attacks[ip].atypes.begin(); at != attacks[ip].atypes.end(); at++)
 		    {
-		      //cout<<" type "<<at->first<<" flows "<<at->second<<endl;
+		      //cout<<" type "<<at->first<<" pkts "<<at->second<<endl;
 		      if ((int)at->first == 0)
 			{
 			  total = at->second;
@@ -427,9 +432,11 @@ double read_one_line(void* nf, char* line)
 	attacks[ip].dur++;
 	attacks[ip].ltime = time;
 	}
-      for(int i=19; i<dl-1; i+=9) // trailing comma
+      for(int i=1; i<dl-1; i+=9) // trailing comma
 	{
 	  enum type t = (enum type)atoi(line+delimiters[i]);
+	  if (t == 0 || t == 1)
+	    continue;
 	  int pkts = atoi(line+delimiters[i+3]);
 	  double tag = 0;
 	  try
@@ -438,9 +445,10 @@ double read_one_line(void* nf, char* line)
 	    }
 	  catch (const std::out_of_range& oor) {
 	  }
-	  
-	  if (tag > THRESH)
+	  //cout<<"Type "<<t<<" tag "<<tag<<" type "<<time<<endl;
+	  if (anomalous(tag))
 	    {
+	      //cout<<"Anomalous tag for type "<<t<<endl;
 	      if (attacks[ip].atypes.find(t) == attacks[ip].atypes.end())
 		attacks[ip].atypes[t] = pkts;
 	      else
@@ -502,11 +510,6 @@ int main (int argc, char *argv[])
   if (file_in == NULL)
     {
       cerr<<"You must specify the file with statistics\n";
-      exit(-1);
-    }
-  if (THRESH == 0)
-    {
-      cerr<<"You must specify the threshold\n";
       exit(-1);
     }
   read_tags();
@@ -590,7 +593,6 @@ int main (int argc, char *argv[])
     for (auto it = attacks.begin(); it != attacks.end(); it++)
     {
       unsigned int ip = it->first;
-      cout<<"Potential attack 2 on "<<toip(ip)<<" dur "<<attacks[ip].dur<<endl;
       if (attacks[ip].dur >= DUR)
 	{
 	  int tt = 0;
