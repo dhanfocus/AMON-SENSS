@@ -319,6 +319,15 @@ double read_one_line(void* nf, char* line)
       bool found = false;
       double frate = 0;
 
+      int tags[18];
+      int rtags[18];
+      int pkts[18];
+      
+      for (int i = 0; i<18; i++)
+	{
+	  tags[i] = 0;
+	  rtags[i] = 0;
+	}
       // Ignore UDP floods and total traffic and just work on the rest
       for(int i=1; i<dl-1; i+=9) // trailing comma
 	{
@@ -344,25 +353,40 @@ double read_one_line(void* nf, char* line)
 	  catch (const std::out_of_range& oor) {
 	    b.rtag = 0;
 	  }
-
-	  if (anomalous(b.tag))
+	  tags[t] = b.tag;
+	  rtags[t] = b.rtag;
+	  pkts[t] = b.pkts;
+	}
+      bool norevan = true;
+      for (int i = 0; i<18; i++)
+	if (anomalous(rtags[i]))
+	  norevan = false;
+      for (int i = 0; i<18; i++)
+	{
+	  if (anomalous(tags[i]))
 	    {
-	      if (attacks.find(ip) == attacks.end())
+	      //cout<<"Time "<<time<<" tags i "<<i<<" = "<<tags[i]<<" rtag "<<rtags[i]<<" norevan "<<norevan<<endl;
+	      // Anything can create anomaly in ICMP pkts
+	      if ((i == 2 && norevan) || (i != 2 && (!anomalous(rtags[i]) &&
+						    (!(i == 9 || i == 10 || i == 2) || (!anomalous(rtags[3]))))))
 		{
-		  attack a;
-		  a.start = time;
-		  a.ltime = time;
-		  a.end = time;
-		  a.dur = 1;
-		  a.rate = b.pkts;
-		  a.gap = 0;
-		  attacks[ip] = a;
-		}
-	      else
-		{
-		  found = true;
-		  if (frate < b.pkts)
-		    frate = b.pkts;
+		  if (attacks.find(ip) == attacks.end())
+		    {
+		      attack a;
+		      a.start = time;
+		      a.ltime = time;
+		      a.end = time;
+		      a.dur = 1;
+		      a.rate = pkts[i];
+		      a.gap = 0;
+		      attacks[ip] = a;
+		    }
+		  else
+		    {
+		      found = true;
+		      if (frate < pkts[i])
+			frate = pkts[i];
+		    }
 		}
 	    }
 	}
