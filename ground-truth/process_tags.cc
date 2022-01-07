@@ -67,7 +67,7 @@
 #define MINV 1.1
 #define MINS 3600
 #define DUR 10
-#define GAP 10
+#define GAP 5
 #define PKTS 1000
 #define SRCS 1
 #define NUMSTD 3
@@ -322,11 +322,14 @@ double read_one_line(void* nf, char* line)
       int tags[18];
       int rtags[18];
       int pkts[18];
+      int rpkts[18];
       
       for (int i = 0; i<18; i++)
 	{
 	  tags[i] = 0;
 	  rtags[i] = 0;
+	  pkts[i] = 0;
+	  rpkts[i] = 0;
 	}
       // Ignore UDP floods and total traffic and just work on the rest
       for(int i=1; i<dl-1; i+=9) // trailing comma
@@ -356,19 +359,89 @@ double read_one_line(void* nf, char* line)
 	  tags[t] = b.tag;
 	  rtags[t] = b.rtag;
 	  pkts[t] = b.pkts;
+	  rpkts[t] = b.rpkts;
 	}
       bool norevan = true;
-      for (int i = 0; i<18; i++)
-	if (anomalous(rtags[i]))
-	  norevan = false;
-      for (int i = 0; i<18; i++)
+      bool notcp = true;
+      for (int i = 2; i<18; i++)
 	{
+	  if (anomalous(rtags[i]))
+	    norevan = false;
+	  if (anomalous(rtags[3]) || anomalous(rtags[9]) || anomalous(rtags[4] || anomalous(rtags[10])))
+	    notcp = false;
+	}
+      for (int i = 2; i<18; i++)
+	{
+	  bool isattack = false;
 	  if (anomalous(tags[i]))
 	    {
 	      //cout<<"Time "<<time<<" tags i "<<i<<" = "<<tags[i]<<" rtag "<<rtags[i]<<" norevan "<<norevan<<endl;
 	      // Anything can create anomaly in ICMP pkts
-	      if ((i == 2 && norevan) || (i != 2 && (!anomalous(rtags[i]) &&
-						    (!(i == 9 || i == 10 || i == 2) || (!anomalous(rtags[3]))))))
+	      switch(i)
+		{
+		case 2:
+		  if (norevan)
+		    isattack = true;
+		  break;
+		case 3:
+		  isattack = true;
+		  break;
+		case 4:
+		  if (!anomalous(rtags[3]) && rpkts[3] < pkts[i])
+		    isattack = true;
+		  break;
+		case 5:
+		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i])
+		    isattack = true;
+		  break;
+		case 6:
+		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i])
+		    isattack = true;
+		  break;
+		case 7:
+		  isattack = true;
+		  break;
+		case 8:
+		  isattack = true;
+		  break;
+		case 9:
+		  if (!anomalous(rtags[3]) && rpkts[3] < pkts[i])
+		    isattack = true;
+		  break;
+		case 10:
+		  if (notcp)
+		    isattack = true;
+		  break;
+		case 11:
+		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i])
+		    isattack = true;
+		  break;
+		case 12:
+		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i])
+		    isattack = true;
+		  break;
+		case 13:
+		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i])
+		    isattack = true;
+		  break;
+		case 14:
+		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i])
+		    isattack = true;
+		  break;
+		case 15:
+		  isattack = true;
+		  break;
+		case 16:
+		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i])
+		    isattack = true;
+		  break;
+		case 17:
+		  isattack = true;
+		  break;
+		default:
+		  break;
+		}
+	      if (isattack)
 		{
 		  if (attacks.find(ip) == attacks.end())
 		    {
