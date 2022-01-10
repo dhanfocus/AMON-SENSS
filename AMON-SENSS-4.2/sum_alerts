@@ -10,7 +10,7 @@ $|=1;
 $DELAY_START = 10;
 $DELAY_END = 300;
 $PKTS = 1;
-$RATE = 0;
+$RATE = 0.5;
 $UPDATE = 0;
 
 $usage="$0 alerts-file\n";

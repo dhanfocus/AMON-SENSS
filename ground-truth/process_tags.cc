@@ -303,6 +303,7 @@ double read_one_line(void* nf, char* line)
     return -1;
   char saveline[1000];
   strcpy(saveline, line);
+  
   int dl = parse(line,' ', ',', &delimiters);
   if (dl > 0)
     {
@@ -321,6 +322,7 @@ double read_one_line(void* nf, char* line)
 
       int tags[18];
       int rtags[18];
+      int vol[18];
       int pkts[18];
       int rpkts[18];
       
@@ -330,6 +332,7 @@ double read_one_line(void* nf, char* line)
 	  rtags[i] = 0;
 	  pkts[i] = 0;
 	  rpkts[i] = 0;
+	  vol[i] = 0;
 	}
       // Ignore UDP floods and total traffic and just work on the rest
       for(int i=1; i<dl-1; i+=9) // trailing comma
@@ -360,6 +363,7 @@ double read_one_line(void* nf, char* line)
 	  rtags[t] = b.rtag;
 	  pkts[t] = b.pkts;
 	  rpkts[t] = b.rpkts;
+	  vol[t] = b.vol;
 	}
       bool norevan = true;
       bool notcp = true;
@@ -450,15 +454,15 @@ double read_one_line(void* nf, char* line)
 		      a.ltime = time;
 		      a.end = time;
 		      a.dur = 1;
-		      a.rate = pkts[i];
+		      a.rate = vol[i]; //pkts[i]
 		      a.gap = 0;
 		      attacks[ip] = a;
 		    }
 		  else
 		    {
 		      found = true;
-		      if (frate < pkts[i])
-			frate = pkts[i];
+		      if (frate < vol[i]) //pkts[i]
+			frate = vol[i]; //pkts[i];
 		    }
 		}
 	    }
