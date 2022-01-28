@@ -8,9 +8,9 @@
 $|=1;
 
 $DELAY_START = 10;
-$DELAY_END = 300;
+$DELAY_END = 60;
 $PKTS = 1;
-$RATE = 0.5;
+$RATE = 0;
 $UPDATE = 0;
 
 $usage="$0 alerts-file\n";
@@ -219,7 +219,7 @@ for (;;) {
 	    {
 		$type = 2;
 	    }
-	    elsif ($_ =~ /proto tcp/ && $_ =~ /flags 2/)
+	    elsif (($_ =~ /proto tcp/ && $_ =~ /flags 2/) || ($_ =~ /proto tcp/ && $_ =~ /flags 0/))
 	    {
 		$type = 8192;
 	    }

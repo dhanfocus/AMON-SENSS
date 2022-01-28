@@ -12,6 +12,8 @@ if ($#ARGV < 1)
     exit 0;
 }
 $fh = new IO::File($ARGV[1]);
+$delay = 0;
+$m = 0;
 while(<$fh>)
 {
     #Attack on 15.73.218.139 from 1599758688 to 1599758827 dur 140 rate 117507 types 25
@@ -35,7 +37,7 @@ while(<$fh>)
     $start = $items[1];
     $end = $items[2];
     $senss{$ip}{$start}{'end'} = $end;
-    $senss{$ip}{$ss}{'matched'} = 0;
+    $senss{$ip}{$start}{'matched'} = 0;
 }
 close($fh);
 $ga = 0;
@@ -56,7 +58,8 @@ for $ip (keys %gt)
 	for $s (keys %{$gt{$ip}})
 	{
 	    $missed++;
-	    print "Missed attack on $ip at $s rate $gt{$ip}{$s}{'rate'}\n";
+	    $dur = $gt{$ip}{$s}{'end'} - $s;
+	    print "MissedA on $ip at $s rate $gt{$ip}{$s}{'rate'} dur $dur\n";
 	    $total++;
 	    $gt{$ip}{$s}{'miss'} = 1;
 	}
@@ -71,16 +74,27 @@ for $ip (keys %gt)
 	    {
 		$e = $gt{$ip}{$s}{'end'};
 		$ee = $senss{$ip}{$ss}{'end'};
-		if (($s <= $ss && $e >= $ss) || ($s <= $ee & $e => $ee) ||
+		print "Comparing senss on $ip stat $ss end $ee with gt start $s end $e\n";
+		if (($s <= $ss && $e >= $ss) || ($s <= $ee & $e >= $ee) ||
 		    ($s >= $ss & $e <= $ee) || ($s <= $ss && $e >= $ee))
 		{
 		    $found = 1;
 		    $senss{$ip}{$ss}{'matched'} = 1;
+		    $d = $ss - $s;
+		    if ($d < 0)
+		    {
+			$d = 0;
+		    }
+		    print("Adding delay $d ss $ss s $s\n");
+		    $delay += ($d);
+		    $m++;
+		    print("Matched senss attack ip $ip start $ss end $senss{$ip}{$ss}{'end'} gt $s end $e\n");
 		}
 	    }
 	    if ($found == 1)
 	    {
-		print "Matched attack on $ip at $s rate $gt{$ip}{$s}{'rate'}\n";
+		$dur =  $gt{$ip}{$s}{'end'} - $s;
+		print "Matched attack on $ip at $s rate $gt{$ip}{$s}{'rate'} dur $dur\n";
 		$matched++;
 		$gt{$ip}{$s}{'miss'} = 0;
 	    }
@@ -118,10 +132,13 @@ for $ip (keys %senss)
 	if ($senss{$ip}{$ss}{'matched'} == 0)
 	{
 	    $fp++;
+	    print("Not matched senss attack ip $ip start $ss\n");
 	}
     }
 }
 print "SENSS false positives $fp\n";
+$r = $delay/$m;
+print "Detection delay $r\n";
 @limits=(0, 0.1, 0.2, 0.5, 1, 100);
 $l = 1;
 while($l <= $#limits)
