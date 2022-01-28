@@ -227,9 +227,18 @@ int loadservices(const char* fname)
 bool isservice(int port)
 {
   if (services.find(port) != services.end())
-    return services[port];
+    return true;
   else
-    return 0;
+    return false;
+}
+
+// Is this a port that uses a lot of UDP and may be one-way?
+bool isspecial(int port)
+{
+  if (port == 443 || port == 80 || port == 4500 || port == 4501 || port == 8080)
+    return true;
+  else
+    return false;
 }
 
 

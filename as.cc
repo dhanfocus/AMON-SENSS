@@ -108,7 +108,9 @@ int parse(char* input, char delimiter, int** array)
 struct cell
 {
   long int *databrick_p;	 // databrick volume
-  long int *databrick_s;         // databrick symmetry 
+  double *databrick_s;           // databrick symmetry
+  long int *databrick_sent;      // databrick pkts sent
+  long int *databrick_rec;       // databrick pkts recvd
   unsigned int *wfilter_p;	 // volume w filter 
   int *wfilter_s;	         // symmetry w filter 
 };
@@ -445,9 +447,10 @@ int match(flow_t flow, flow_t sig)
 int malformed(double timestamp)
 {
   // Give some space here in case we're a few ms off
-  if (timestamp < firsttimeinfile-1 || (parms["file_interval"] > 0 && timestamp > firsttimeinfile +
-				      parms["file_interval"]))
+  if (timestamp < firsttimeinfile-600 || (parms["file_interval"] > 0 && timestamp > firsttimeinfile +
+				      2*parms["file_interval"]))
     {
+      cout<<"Malformed "<<std::fixed<<" timestamp "<<timestamp<<" fif "<<firsttimeinfile<<" interval "<<parms["file_interval"]<<endl;
       return 1;
     }
   return 0;
@@ -461,11 +464,19 @@ double abnormal(int type, int index, cell* c)
   double std = sqrt(stats[hist][ss][type][index]/
 		    (stats[hist][n][type][index]-1));
   // Look up current value
-  int data;
+  double data;
+  
+  double ao = stats[cur][avg][type][index];
+
   if (type == vol)
     data = c->databrick_p[index];
   else
     data = c->databrick_s[index];
+
+  double ddata = stats[cur][avg][type][index] +
+    (double)(data - stats[cur][avg][type][index])/(stats[cur][n][type][index]+1);
+
+  data = ddata; // Jelena hack
   // If we don't have enough samples return 0
   if (stats[hist][n][type][index] <
       parms["min_train"]*MIN_SAMPLES)
@@ -478,7 +489,10 @@ double abnormal(int type, int index, cell* c)
   
   double rto = tmp/(std+1);
 
-  
+  //if (index == 26620 && type == sym)
+  //{
+  //   cout<<"data "<<data<<" samples "<<stats[cur][n][sym][index]<<" avg cur "<<stats[cur][avg][sym][index]<<" ss "<<stats[cur][ss][sym][index]<<endl;
+  // }
   if (rto > 0)
     return rto;
   else
@@ -508,8 +522,8 @@ void print_alert(int i, cell* c, int na)
 
   pthread_mutex_lock(&cnt_lock);
 
-  out.open("alerts.txt", std::ios_base::app);
-  out<<na<<" "<<i/BRICK_UNIT<<" "<<(long)curtime<<" ";
+  out.open("alerts.txt", std::ios_base::app); 
+  out<<na<<" "<<i/(BRICK_UNIT+shuffle_index)<<" "<<(long)curtime<<" ";
   out<<"START "<<i<<" "<<abs(rate);
   out<<" "<<abs(roci)<<" ";
   out<<printsignature(signatures[i].sig)<<endl;
@@ -597,7 +611,7 @@ void findBestSignature(double curtime, int i, cell* c)
   int maxoci = 0;
   double avgs = stats[hist][avg][sym][i];
   double stds = sqrt(stats[hist][ss][sym][i]/(stats[hist][n][sym][i]-1));
-  int totoci = abs(c->databrick_s[i]) - abs(avgs) -  parms["num_std"]*abs(stds); 
+  int totoci = c->databrick_rec[i]; //abs(c->databrick_s[i]) - abs(avgs) -  parms["num_std"]*abs(stds); 
   
   // Go through candidate signatures
   for (int s=1; s<NF; s++)
@@ -675,6 +689,11 @@ void findBestSignature(double curtime, int i, cell* c)
 
 void instant_detect(cell* c, double ltime, int i)
 {
+  c->databrick_s[i] = (double)c->databrick_rec[i]/(c->databrick_sent[i] + 1);
+  //  if (i == 26620)
+     //  {
+  // cout<<std::fixed<<ltime<<" for 26620 rec "<<c->databrick_rec[i]<<" sent "<<c->databrick_sent[i]<<" avgs "<<stats[hist][avg][sym][i]<<" samples "<<stats[hist][n][sym][i]<<endl;
+  //}
   double avgv = stats[hist][avg][vol][i];
   double stdv = sqrt(stats[hist][ss][vol][i]/(stats[hist][n][vol][i]-1));
   double avgs = stats[hist][avg][sym][i];
@@ -696,8 +715,8 @@ void instant_detect(cell* c, double ltime, int i)
 	  if (aavgs == 0)
 	    aavgs = 1;
 	  double d = abs(abs(asym) - abs(avgs) - parms["num_std"]*abs(stds))/aavgs;
-	  if (d > parms["max_oci"])
-	    d = parms["max_oci"];
+	  //if (d > parms["min_oci"])
+	  // d = parms["min_oci"];
 	  
 	  if (0 && a >= parms["cusum_thresh"] && b >= parms["cusum_thresh"])
 	    is_abnormal[i] = int(parms["attack_high"]);
@@ -715,19 +734,19 @@ void instant_detect(cell* c, double ltime, int i)
 	  is_abnormal[i] = int(parms["attack_high"]);
 	  */
 	  
-	  if (verbose && is_abnormal[i])
+	  if (verbose && is_abnormal[i]) 
 	    cout<<std::fixed<<ltime<<" abnormal for "<<i<<" points "<<is_abnormal[i]<<" oci "<<c->databrick_s[i]<<" ranges " <<avgs<<"+-"<<stds<<", vol "<<c->databrick_p[i]<<" ranges " <<avgv<<"+-"<<stdv<<" over mean "<<d<<" a "<<a<<" b "<<b<<" cusum thresh " << parms["cusum_thresh"]<<endl;
 
 	  // If abnormal score is above attack_low
-	  // and oci is above MAX_OCI
+	  // and oci is above MIN_OCI
 	  if (is_abnormal[i] >= int(parms["attack_low"])
-	      && !is_attack[i] && abs(c->databrick_s[i]) >= int(parms["max_oci"]))
+	      && !is_attack[i]) // && abs(c->databrick_s[i]) >= int(parms["min_oci"]))
 	    {
 	      // Signal attack detection 
 	      is_attack[i] = true;
 	      detection_time[i] = ltime;
 	      if (verbose)
-		cout<<"AT: Attack detected on "<<i<<" but not reported yet vol "<<c->databrick_p[i]<<" oci "<<c->databrick_s[i]<<" max oci "<<int(parms["max_oci"])<<endl;
+		cout<<"AT: Attack detected on "<<i<<" but not reported yet vol "<<c->databrick_p[i]<<" oci "<<c->databrick_s[i]<<" min oci "<<int(parms["min_oci"])<<endl;
 	      
 	      // Find the best signature
 	      findBestSignature(ltime, i, c);
@@ -752,7 +771,9 @@ void malloc_all()
   for(int i=0; i<QSIZE; i++)
     { 
       cells[i].databrick_p = (long int*) malloc(BRICK_FINAL*sizeof(long int));
-      cells[i].databrick_s = (long int*) malloc(BRICK_FINAL*sizeof(long int));
+      cells[i].databrick_sent = (long int*) malloc(BRICK_FINAL*sizeof(long int));
+      cells[i].databrick_rec = (long int*) malloc(BRICK_FINAL*sizeof(long int));
+      cells[i].databrick_s = (double*) malloc(BRICK_FINAL*sizeof(long int));
       cells[i].wfilter_p = (unsigned int*) malloc(BRICK_FINAL*sizeof(unsigned int));
       cells[i].wfilter_s = (int*) malloc(BRICK_FINAL*sizeof(int));
     }
@@ -769,6 +790,8 @@ void malloc_all()
    samples.bins = (sample_p*) malloc(BRICK_FINAL*sizeof(sample_p));
 }
 
+// This function finds most representative members (e.g., IPs, ports) and these
+// are stored in a cell by themselves
 void shuffle(unsigned int addr, int len, int oci, unsigned int curtime)
 {
   if (memshuffle.find(addr) == memshuffle.end())
@@ -806,7 +829,7 @@ void shuffle(unsigned int addr, int len, int oci, unsigned int curtime)
 	    }
 	}
       shuffled++;
-      if (shuffled > MAX_SHUFFLES)
+      if (shuffled > MAX_SHUFFLES && !shuffle_done)
 	{
 	  shuffle_done = true;
 	  shuffle_index = memshuffle.size();
@@ -834,7 +857,8 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
     }
   // Detect if it is UDP for port 443 or 4500 or 4501 or 80
   // and don't use it. It's most likely legitimate.
-  if (flow.sport == 443 || flow.dport == 443 || flow.sport == 4500 || flow.dport == 4500 || flow.sport == 4501 || flow.dport == 4501 || flow.sport == 80 || flow.dport == 80)
+  if (flow.proto == UDP && ((isspecial(flow.sport) && !isservice(flow.dport)) ||
+			    (isspecial(flow.dport) && !isservice(flow.sport))))
     return;
   
   if (flow.proto == ICMP)
@@ -940,10 +964,6 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 		  else
 		    port = flow.dport;
 		  d_bucket = myhash(flow.dst, port, way);
-		  //if (d_bucket == 14365)
-		  //printf("%lf %lf: dst %ld flow bytes %d oci %d sport %d dport %d dbucket %d samples %lf\n", start, end, flow.dst, len, oci, flow.sport, flow.dport, d_bucket, stats[hist][n][sym][d_bucket]);
-		  if (d_bucket == 14365)
-		    print_bin(end, c, d_bucket);
 		  if (shouldFilter(d_bucket, flow, c))
 		    {
 		      is_filtered = true;
@@ -960,6 +980,8 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
   
   for (int way = LHOST; way <= LPRST; way++) 
     {
+      //if (flow.dst == 1093564320 || flow.src == 1093564320 && flow.proto == 6)
+      //cout<<std::fixed<<start<<" "<<end<<" way "<<way<<" tcp proto flags "<<flow.flags<<" len "<<len<<" oci "<<oci<<" dlocal "<<flow.dlocal<<" slocal "<<flow.slocal<<" s_bucket "<<myhash(flow.src, 0, way)<<endl;
       // Find buckets on which to work
       if (way == LHOST || way == LPREF || way == LHSYN || way == LPSYN || way == LHSYNACK || way == LPSYNACK || way == LHACK || way == LPACK || way == LHRST || way == LPRST)
 	{
@@ -967,7 +989,13 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic to LHOST/LPREF
 	      d_bucket = myhash(flow.dst, 0, way);
-
+	      if (toip(flow.dst) == "15.82.213.138")
+		{
+		  cout<<std::fixed<<start<<"Dbucket is "<<d_bucket<<" way "<<way<<endl;
+		}
+	      //if (d_bucket == 6091)
+		//	cout<<std::fixed<<start<<" "<<end<<" "<<way<<" from1 "<<toip(flow.src)<<" to "<<toip(flow.dst)<<" proto "<<int(flow.proto)<<" len "<<len<<" oci "<<oci<<" vol in brick "<<c->databrick_p[d_bucket]<<" oci in brick "<<c->databrick_s[d_bucket]<<" rec "<<c->databrick_rec[d_bucket]<<" sent "<<c->databrick_sent[d_bucket]<<endl;
+	      
 	      if (way == LHSYN  || way == LPSYN)
 		if (flow.flags != SYN || flow.proto != TCP)
 		  continue;
@@ -981,7 +1009,11 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 		if (flow.flags != RST || flow.proto != TCP)
 		  continue;
 	      c->databrick_p[d_bucket] += len;
-	      c->databrick_s[d_bucket] += oci;
+	      c->databrick_rec[d_bucket] += oci;
+	      if (toip(flow.dst) == "15.82.213.138")
+		{
+		  cout<<std::fixed<<start<<"Dbucket is "<<d_bucket<<" len "<<c->databrick_p[d_bucket]<<" rec "<<c->databrick_rec[d_bucket]<<" sent "<<c->databrick_sent[d_bucket]<<endl;
+		}
 	      addSample(d_bucket, &fp, way);
 	      instant_detect(c, curtime, d_bucket);
 	    }
@@ -989,6 +1021,8 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic from LHOST/LPREF
 	      s_bucket = myhash(flow.src, 0, way);
+	      //if (s_bucket == 6091)
+	      // cout<<std::fixed<<start<<" "<<end<<" "<<way<<" from2 "<<toip(flow.src)<<" to "<<toip(flow.dst)<<" proto "<<int(flow.proto)<<" len "<<len<<" oci "<<oci<<" vol in brick "<<c->databrick_p[s_bucket]<<" oci in brick "<<c->databrick_s[s_bucket]<<" rec "<<c->databrick_rec[s_bucket]<<" sent "<<c->databrick_sent[s_bucket]<<endl;
 	      if (way == LHSYN || way == LPSYN)
 		if ((flow.flags != SYNACK && flow.flags != ACK && flow.flags != RST) || flow.proto != TCP)
 		  continue;
@@ -1002,7 +1036,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 		if (flow.flags != SYN || flow.proto != TCP)
 		  continue;
 	      c->databrick_p[s_bucket] -= len;
-	      c->databrick_s[s_bucket] -= oci;
+	      c->databrick_sent[s_bucket] += oci;
 	      instant_detect(c, curtime, s_bucket);
 	    }	      
 	}
@@ -1012,18 +1046,25 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic from FPORT
 	      s_bucket = myhash(0, flow.sport, way);
-
+	      //if (s_bucket == 6091)
+	      //cout<<std::fixed<<start<<" "<<end<<" "<<way<<" from3 "<<toip(flow.src)<<" to "<<toip(flow.dst)<<" proto "<<int(flow.proto)<<" len "<<len<<" oci "<<oci<<" vol in brick "<<c->databrick_p[s_bucket]<<" oci in brick "<<c->databrick_s[s_bucket]<<" rec "<<c->databrick_rec[s_bucket]<<" sent "<<c->databrick_sent[s_bucket]<<endl;
 	      c->databrick_p[s_bucket] += len;
-	      c->databrick_s[s_bucket] += oci;
+	      c->databrick_rec[s_bucket] += oci;
+	      if (toip(flow.dst) == "15.82.213.138")
+		{
+		  cout<<std::fixed<<start<<"Sbucket is "<<s_bucket<<" len "<<c->databrick_p[s_bucket]<<" rec "<<c->databrick_rec[s_bucket]<<" sent "<<c->databrick_sent[d_bucket]<<endl;
+		}
 	      addSample(s_bucket, &fp, way);
 	      instant_detect(c, curtime, s_bucket);
 	    }
 	  if (flow.slocal && isservice(flow.dport))
 	    {
 	      // traffic to FPORT
-	      d_bucket = myhash(0, flow.dport, way);
+	      d_bucket = myhash(0, flow.dport, way);	      
+	      //if (d_bucket == 6091)
+	      //cout<<std::fixed<<start<<" "<<end<<" "<<way<<" from4 "<<toip(flow.src)<<" to "<<toip(flow.dst)<<" proto "<<int(flow.proto)<<" len "<<len<<" oci "<<oci<<" vol in brick "<<c->databrick_p[d_bucket]<<" oci in brick "<<c->databrick_s[d_bucket]<<" rec "<<c->databrick_rec[d_bucket]<<" sent "<<c->databrick_sent[d_bucket]<<endl;
 	      c->databrick_p[d_bucket] -= len;
-	      c->databrick_s[d_bucket] -= oci;
+	      c->databrick_sent[d_bucket] += oci;
 	      instant_detect(c, curtime, d_bucket);
 	    }
 	}
@@ -1033,9 +1074,14 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic to LPORT
 	      d_bucket = myhash(0, flow.dport, way);
-
+	      //if (d_bucket == 6091)
+	      //cout<<std::fixed<<start<<" "<<end<<" "<<way<<" from5 "<<toip(flow.src)<<" to "<<toip(flow.dst)<<" proto "<<int(flow.proto)<<" len "<<len<<" oci "<<oci<<" vol in brick "<<c->databrick_p[d_bucket]<<" oci in brick "<<c->databrick_s[d_bucket]<<" rec "<<c->databrick_rec[d_bucket]<<" sent "<<c->databrick_sent[d_bucket]<<endl;	      
 	      c->databrick_p[d_bucket] += len;
-	      c->databrick_s[d_bucket] += oci;
+	      c->databrick_rec[d_bucket] += oci;
+	      if (toip(flow.dst) == "15.82.213.138")
+		{
+		  cout<<std::fixed<<start<<"Dbucket2 is "<<d_bucket<<" len "<<c->databrick_p[d_bucket]<<" rec "<<c->databrick_rec[d_bucket]<<" sent "<<c->databrick_sent[d_bucket]<<endl;
+		}
 	      addSample(d_bucket, &fp, way);
 	      instant_detect(c, curtime, d_bucket);
 	    }
@@ -1043,8 +1089,10 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic from LPORT
 	      s_bucket = myhash(0, flow.sport, way);
+	      //if (s_bucket == 6091)
+	      //cout<<std::fixed<<start<<" "<<end<<" "<<way<<" from6 "<<toip(flow.src)<<" to "<<toip(flow.dst)<<" proto "<<int(flow.proto)<<" len "<<len<<" oci "<<oci<<" vol in brick "<<c->databrick_p[s_bucket]<<" oci in brick "<<c->databrick_s[s_bucket]<<" rec "<<c->databrick_rec[s_bucket]<<" sent "<<c->databrick_sent[s_bucket]<<endl;
 	      c->databrick_p[s_bucket] -= len;
-	      c->databrick_s[s_bucket] -= oci;
+	      c->databrick_sent[s_bucket] += oci;
 	      instant_detect(c, curtime, s_bucket);
 	    }
 	}
@@ -1054,9 +1102,10 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic from FPORT
 	      s_bucket = myhash(flow.dst, flow.sport, way);
-	      
+	      //if (s_bucket == 6091)
+	      //cout<<std::fixed<<start<<" "<<end<<" "<<way<<" from7 "<<toip(flow.src)<<" to "<<toip(flow.dst)<<" proto "<<int(flow.proto)<<" len "<<len<<" oci "<<oci<<" vol in brick "<<c->databrick_p[s_bucket]<<" oci in brick "<<c->databrick_s[s_bucket]<<" rec "<<c->databrick_rec[s_bucket]<<" sent "<<c->databrick_sent[s_bucket]<<endl;
 	      c->databrick_p[s_bucket] += len;
-	      c->databrick_s[s_bucket] += oci;
+	      c->databrick_rec[s_bucket] += oci;
 	      addSample(s_bucket, &fp, way);
 	      instant_detect(c, curtime, s_bucket);
 	    }
@@ -1064,9 +1113,10 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic to FPORT
 	      d_bucket = myhash(flow.src, flow.dport, way);
-
+	      //if (d_bucket == 6091)
+	      //cout<<std::fixed<<start<<" "<<end<<" "<<way<<" from8 "<<toip(flow.src)<<" to "<<toip(flow.dst)<<" proto "<<int(flow.proto)<<" len "<<len<<" oci "<<oci<<" vol in brick "<<c->databrick_p[d_bucket]<<" oci in brick "<<c->databrick_s[d_bucket]<<" rec "<<c->databrick_rec[d_bucket]<<" sent "<<c->databrick_sent[d_bucket]<<endl;
 	      c->databrick_p[d_bucket] -= len;
-	      c->databrick_s[d_bucket] -= oci;
+	      c->databrick_sent[d_bucket] += oci;
 	      instant_detect(c, curtime, d_bucket);
 	    }
 	}
@@ -1076,9 +1126,10 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic to LPORT
 	      d_bucket = myhash(flow.dst, flow.dport, way);
-
+	      //if (d_bucket == 6091)
+	      //cout<<std::fixed<<start<<" "<<end<<" "<<way<<" from9 "<<toip(flow.src)<<" to "<<toip(flow.dst)<<" proto "<<int(flow.proto)<<" len "<<len<<" oci "<<oci<<" vol in brick "<<c->databrick_p[d_bucket]<<" oci in brick "<<c->databrick_s[d_bucket]<<" rec "<<c->databrick_rec[d_bucket]<<" sent "<<c->databrick_sent[d_bucket]<<endl;
 	      c->databrick_p[d_bucket] += len;
-	      c->databrick_s[d_bucket] += oci;
+	      c->databrick_rec[d_bucket] += oci;
 	      addSample(d_bucket, &fp, way);
 	      instant_detect(c, curtime, d_bucket);
 	    }
@@ -1086,8 +1137,10 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic from LPORT
 	      s_bucket = myhash(flow.src, flow.sport, way);
+	      //if (s_bucket == 6091)
+	      //cout<<std::fixed<<start<<" "<<end<<" "<<way<<" from10 "<<toip(flow.src)<<" to "<<toip(flow.dst)<<" proto "<<int(flow.proto)<<" len "<<len<<" oci "<<oci<<" vol in brick "<<c->databrick_p[s_bucket]<<" oci in brick "<<c->databrick_s[s_bucket]<<" rec "<<c->databrick_rec[s_bucket]<<" sent "<<c->databrick_sent[s_bucket]<<endl;
 	      c->databrick_p[s_bucket] -= len;
-	      c->databrick_s[s_bucket] -= oci;
+	      c->databrick_sent[s_bucket] += oci;
 	      instant_detect(c, curtime, s_bucket);
 	    }
 	}
@@ -1105,12 +1158,16 @@ void update_stats(cell* c)
     {
       for (int j=vol; j<=sym; j++)
 	{
-	  int data;
+	  double data;
 	  if (j == vol)
 	    data = c->databrick_p[i];
 	  else
-	    data = c->databrick_s[i];
-
+	    {
+	      c->databrick_s[i] = (double)c->databrick_rec[i]/(c->databrick_sent[i] + 1);
+	      data = c->databrick_s[i];
+	    }
+	  //if (i == 6091 && j == sym)
+	  //cout<<"updating i "<<i<<" j "<<j<<" n "<<stats[cur][n][j][i]<<" cur avg "<<stats[cur][avg][j][i] <<" sent "<<c->databrick_sent[i]<<" rec "<<c->databrick_rec[i]<<" sym "<<data<<endl;
 	  // Only update if everything looks normal 
 	  if (!is_abnormal[i])
 	    {
@@ -1124,12 +1181,16 @@ void update_stats(cell* c)
 		}
 	      else
 		{
-		  int ao = stats[cur][avg][j][i];
+		  double ao = stats[cur][avg][j][i];
 		  stats[cur][avg][j][i] = stats[cur][avg][j][i] +
-		    (data - stats[cur][avg][j][i])/stats[cur][n][j][i];
+		    (double)(data - stats[cur][avg][j][i])/stats[cur][n][j][i];
 		  stats[cur][ss][j][i] = stats[cur][ss][j][i] +
 		    (data-ao)*(data - stats[cur][avg][j][i]);
+		  //if (i == 26620 && j == sym)
+		  //cout<<std::fixed<<curtime<<" curcurupdated ao "<<ao<<" avg "<<stats[cur][avg][j][i]<<" ss "<< stats[cur][ss][j][i]<<endl;
 		}
+	      //   if (i == 26620 && j == sym)
+	      //cout<<std::fixed<<curtime<<" data "<<data<<" curupdated to "<<avg<<" for feature "<<j<<" value "<<stats[cur][avg][j][i]<<" samples "<<stats[cur][n][j][i]<<endl;	
 	    }
 	}      
     }
@@ -1158,6 +1219,8 @@ void update_stats(cell* c)
 	      stats[hist][x][j][i] = 0.5*stats[hist][x][j][i] + 0.5*stats[cur][x][j][i];
 	    else
 	      stats[hist][x][j][i] = stats[cur][x][j][i];
+	    //if (i == 26620)
+	    //cout<<std::fixed<<curtime<<" updated to "<<x<<" for feature "<<j<<" value "<<stats[hist][x][j][i]<<" samples "<<stats[cur][n][j][i]<<endl;
 	    stats[cur][x][j][i] = 0;
 	  }
     }
@@ -1668,8 +1731,8 @@ double read_one_line(void* nf, char* format, char* line, u_char* p,  struct pcap
 	  if (strstr(tmpline, "|") == NULL)
 	    return 0;
 	  int dl = parse(tmpline,'|', &delimiters);
-	  double epoch = strtol(tmpline+delimiters[0],NULL,10);
-	  int msec = atoi(tmpline+delimiters[1]);
+	  double epoch = strtol(tmpline+delimiters[2],NULL,10);
+	  int msec = atoi(tmpline+delimiters[3]);
 	  epoch = epoch + msec/1000.0;
 	  return epoch;
 	}
@@ -1757,7 +1820,9 @@ void read_from_file(void* nf, char* format)
 	  // zero out stats
 	  cell* c = &cells[crear];
 	  memset(c->databrick_p, 0, BRICK_FINAL*sizeof(long int));
-	  memset(c->databrick_s, 0, BRICK_FINAL*sizeof(long int));
+	  memset(c->databrick_sent, 0, BRICK_FINAL*sizeof(long int));
+	  memset(c->databrick_rec, 0, BRICK_FINAL*sizeof(long int));
+	  memset(c->databrick_s, 0, BRICK_FINAL*sizeof(double));
 	  memset(c->wfilter_p, 0, BRICK_FINAL*sizeof(unsigned int));
 	  memset(c->wfilter_s, 0, BRICK_FINAL*sizeof(int));
 	  // and it will soon be full
@@ -1992,7 +2057,7 @@ int main (int argc, char *argv[])
 		  read_from_file(nf, format);
 		  pclose(nf);
 		}
-	      cout<<"Done with the file "<<file<<" time "<<time(0)<<" flows "<<allflows<<endl;
+	      cout<<"Done with the file "<<file<<" time "<<time(0)<<" flows "<<allflows<<" training "<<training_done<<" shuffle "<<shuffle_done<<endl;
 	      if (endfile && strstr(file,endfile) != 0)
 		break;
 	    }

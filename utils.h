@@ -34,7 +34,7 @@ using namespace std;
 #define NUMF 16                    // How many ways do we bin the traffic
 enum ways{LHOST, LPREF, FPORT, LPORT, LHFPORT, LHLPORT, LPFPORT, LPLPORT, LHSYN, LPSYN, LHSYNACK, LPSYNACK, LHACK, LPACK, LHRST, LPRST};
 
-#define BRICK_UNIT 337            // How many bins we have. This should NOT be a power of 2
+#define BRICK_UNIT 3337            // How many bins we have. This should NOT be a power of 2
 #define BRICK_DIMENSION NUMF*BRICK_UNIT // There are NUMF variants of how we can bin the traffic (e.g., by port, by dst IP, etc.)
 #define SIGTIME 1
 #define REPORT_THRESH 30
@@ -212,6 +212,7 @@ string printsignature(flow_t s);
 int loadservices(const char* fname);
 void loadprefixes(const char* fname);
 bool isservice(int port);
+bool isspecial(int port);
 bool islocal(u_int32_t ip);
 int zeros(flow_t f);
 unsigned int todec(string ip);

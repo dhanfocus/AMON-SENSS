@@ -1,113 +1,81 @@
-# Read attacks we detected and attacks from Peakflow
-# and print matches
+# Supply peakflowalerts.txt file and alerts.txt file
+# try to match destinations and times and print out matches
+# Also print statistics, what matched and what didn't
+# specify peakflow alert file and alerts.txt
 
-$usage="$0 our-attacks peakflow-attacks-new-format\n";
+%palerts = ();
+%aalerts = ();
+%map = ();
+
+$usage="$0 peakflowalerts.txt alerts.txt\n";
 
 if ($#ARGV < 1)
 {
     print $usage;
-    exit 0;
+    exit(1);
 }
-%attacks=();
-$fh = new IO::File($ARGV[0]);
-$i = 0;
+$fh=new IO::File("/home/sunshine/newmap");
 while(<$fh>)
 {
-    #Attack on 7.29.11.61 from 1589205408 to 1589205659 dur 58 rate 188416 types 4
-    $line = $_;
     @items = split /\s+/, $_;
-    $target = $items[2];
-    $target =~ s/\.\d+$/\.0/;
-    $start = $items[4];
-    $stop = $items[6];
-    $type = int($items[12]);
-    if ($type == 4)
+    $orig = $items[0];
+    $anon = $items[1];
+    $orig =~ s/\.\d+$/\.0/;
+    $anon =~ s/\.\d+$/\.0/;
+    $map{$orig} = $anon;
+}
+close($fh);
+$fh = new IO::File($ARGV[0]);
+while(<$fh>)
+{
+    @items = split /\s+/, $_;
+    $id = $items[0];
+    $items[1] =~  s/\.\d+$/\.0/;
+    $palerts{$id}{'target'} = $map{$items[1]};
+    $palerts{$id}{'severity'} = $items[2];
+    $palerts{$id}{'rb'} = $items[3];
+    $palerts{$id}{'rp'} = $items[4];
+    $palerts{$id}{'start'} = $items[5];
+    if ($items[6] == -1)
     {
-	next;
+        $items[6] = $items[5];
     }
-    $attacks{$i}{'target'} = $target;
-    $attacks{$i}{'start'} = $start;
-    $attacks{$i}{'stop'} = $stop;
-    $line =~ s/\n//g;
-
-    $attacks{$i}{'line'} = $line;
-    $attacks{$i}{'type'} = $type;
-    $attacks{$i}{'matched'} = "";
-    
-    #print "Attack $i on $target start $start stop $stop\n";
-    $i++;
+    $palerts{$id}{'end'} = $items[6];
+    $palerts{$id}{'atype'} = $items[7];
 }
 close($fh);
 $fh = new IO::File($ARGV[1]);
-$maxat = scalar(keys %attacks);
 while(<$fh>)
 {
-    #11819559 2.36.86.0 low 7830000000 962720 20200207 16:45:0 - 17:55:0 4 1581122865 -1
-    $line = $_;
-    @items = split /\s+/, $line;
-    $target = $items[1];
-    $sev = $items[2];
-    $start = $items[10];
-    $stop = $items[11];
-    $type = int($items[9]);
-    if ($stop == -1)
-    {
-	$stop = $start + 300;
-    }
-    #print "Attack peakflow on target $target start $start stop $stop\n";
+    #4 4 1589182786 START 3304 18597658 246032 src ip 18.198.139.135 and dst ip 0.0.0.0 and dst port 500 and proto udp
+    @items = split /\s+/, $_;
+    $id = $items[0];
+    $aalerts{$id}{'start'} = $items[2];
+    $aalerts{$id}{'rb'} = $items[5];
+    $aalerts{$id}{'rp'} = $items[6];
+    $aalerts{$id}{'text'} = $_;
+}
+for $p (sort {$a <=> $b} keys %palerts)
+{
     $matched = 0;
-    for $i (sort {$a <=> $b} keys %attacks)
+    for $x (sort {$a <=> $b} keys %aalerts)
     {
-	# Do not match with new attacks
-	if ($i >= $maxat)
+	$t = $palerts{$p}{'target'};
+	$t =~ s/\.0//;
+	#print "Trying to match $t with $aalerts{$x}{'text'}";
+	if ($aalerts{$x}{'text'} =~ / $t/)
 	{
-	    next;
-	}
-	if ($attacks{$i}{'target'} ne $target)
-	{
-	    next;
-	}
-	# Do we overlap, encompass or shortly precede this attack?
-	if (($attacks{$i}{'start'} > $start && $attacks{$i}{'start'} < $stop) ||
-	    ($attacks{$i}{'stop'} > $start && $attacks{$i}{'stop'} < $stop) ||
-	    ($attacks{$i}{'start'} < $start && $attacks{$i}{'stop'} > $stop) ||
-	    ($attacks{$i}{'stop'}  < $start && $attacks{$i}{'stop'} + 300 > $start)) # ||
-	    #($attacks{$i}{'start'}  > $stop && $attacks{$i}{'start'} - 300 < $stop))
-	{
-	    $and = (($attacks{$i}{'type'} & $type));
-	    #print "Potential match $attacks{$i}{'line'} matching type $attacks{$i}{'type'} and $type and is $and\n";
-	    if ($and != 0)
+	    $diff1 = $aalerts{$x}{'start'} - $palerts{$p}{'start'};
+	    if (abs($diff1) < 120)
 	    {
-		#print "$_ matches $attacks{$i}{'line'} matched for $i is $attacks{$i}{'matched'}\n";
-		if ($attacks{$i}{'matched'} eq "")
-		{
-		    $attacks{$i}{'matched'} = "$sev $start $stop $type\n";
-		}
-		else
-		{
-		    $k = scalar(keys %attacks);
-		    #print "Adding attack $k with $sev $start $stop $type\n";
-		    $attacks{$k}{'line'} = $attacks{$i}{'line'};
-		    $attacks{$k}{'matched'} = "$sev $start $stop $type\n";
-		}
+		$pp = (abs($diff1) < 120);
+		print "Matched alert $x with peakflow alert $p diff " . abs($diff1) . " comparison " . $pp . " between $aalerts{$x}{'start'} and $palerts{$p}{'start'} type $palerts{$p}{'atype'} and alert text $aalerts{$x}{'text'} \n";
 		$matched = 1;
 	    }
 	}
     }
     if ($matched == 0)
     {
-	print "Didn't match $line\n";
-    }
-}
-close($fh);
-
-for $i (sort {$a <=> $b} keys %attacks)
-{
-    if ($attacks{$i}{'matched'} ne "")
-    {
-	$line = $attacks{$i}{'line'};
-	$line =~ s/types \d+/types $attacks{$i}{'type'}/;
-	$line =~ s/\n//;
-	print "$attacks{$i}{'line'} $attacks{$i}{'matched'}";
+	print "Not matched alert $p target $t\n";
     }
 }
