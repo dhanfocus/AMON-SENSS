@@ -104,6 +104,7 @@ struct cell {
 struct statsr {
   int maxs;
   map<unsigned int, cell> statsdata;
+  bool tagged;
 };
 
 map<unsigned int, statsr> stats;
@@ -154,7 +155,7 @@ void print_stats(string file)
 		nonzero = true;
 	    }
 	  //cout<<"Nonzero "<<nonzero<<endl;
-	  if (nonzero)
+	  if (nonzero && it->second.tagged)
 	    {
 	      out<<toip(it->first)<<" "<<iit->first<<" ";
 	      for (auto dit = iit->second.data.begin(); dit != iit->second.data.end(); dit++)
@@ -164,7 +165,8 @@ void print_stats(string file)
 	      out<<endl;
 	    }
 	}
-      it->second.statsdata.clear();
+      if (it->second.tagged)
+	it->second.statsdata.clear();
     }
   out.close();
 }
@@ -399,7 +401,6 @@ void calc_cusum(unsigned int ip, enum type t, struct bcell value, unsigned int t
 
   for (enum celltype ct = SRC; ct <= RPKTS; ct=(enum celltype)((int)ct+ 1))
     {
-
       double data;
       if (ct == SRC)
 	data = value.srcs;
@@ -424,7 +425,7 @@ void calc_cusum(unsigned int ip, enum type t, struct bcell value, unsigned int t
 	  if (ct != SRC && ct != DST && std <= 4096)
 	    std = 4096;
 	  double tmp = metrics[ip][t].records[ct].cusum*BETA  + (data - metrics[ip][t].records[ct].last)/std;
-	  //cout<<"IP "<<toip(ip)<<" ctype "<<t<<" ct "<<ct<<" Calculating cusum time "<<time<<" starttime "<<starttime<<" diff "<<diff<<" old value "<<metrics[ip][t].records[ct].cusum<<" new data "<<data<<" old data "<< metrics[ip][t].records[ct].last<<" std "<<std<<" samples "<<metrics[ip][t].n<<" new value "<<tmp<<endl;
+	    //cout<<"IP "<<toip(ip)<<" ctype "<<t<<" ct "<<ct<<" Calculating cusum time "<<time<<" starttime "<<starttime<<" diff "<<diff<<" old value "<<metrics[ip][t].records[ct].cusum<<" new data "<<data<<" old data "<< metrics[ip][t].records[ct].last<<" std "<<std<<" samples "<<metrics[ip][t].n<<" new value "<<tmp<<endl;
 	  metrics[ip][t].records[ct].cusum = tmp;
 	  if (tmp > 0)
 	    {
@@ -441,7 +442,6 @@ void calc_cusum(unsigned int ip, enum type t, struct bcell value, unsigned int t
 	metrics[ip][t].records[ct].last = data;
       else
 	metrics[ip][t].records[ct].last = metrics[ip][t].records[ct].mean;
-
       //cout<<"Cusum is "<<metrics[ip][t].records[ct].cusum<<" tag is "<< stats[ip].statsdata[time].data[t].tag<<endl;
       //stats[ip].statsdata[time].data[t].tag += metrics[ip][t].records[ct].cusum;
     }
@@ -475,13 +475,15 @@ void update_means(unsigned int ip, enum type t, struct bcell value, unsigned int
       double std = 0;
       if (metrics[ip][t].records[ct].ss > 0)
 	std = metrics[ip][t].records[ct].stdev;
-      //cout<<"IP "<<ip<<" time "<<time<<" type "<<t<<" ct "<<ct<<" value "<<data<<" samples "<<metrics[ip][t].n<<" max "<<metrics[ip][t].records[ct].max<<" mean "<<metrics[ip][t].records[ct].mean<<" std "<<std<<" cusum "<< metrics[ip][t].records[ct].cusum;
+      
+      //	cout<<"IP "<<ip<<" time "<<time<<" type "<<t<<" ct "<<ct<<" value "<<data<<" samples "<<metrics[ip][t].n<<" max "<<metrics[ip][t].records[ct].max<<" mean "<<metrics[ip][t].records[ct].mean<<" std "<<std<<" cusum "<< metrics[ip][t].records[ct].cusum;
       if (metrics[ip][t].records[ct].cusum <= THRESH)
 	{
-	  //    cout<<" normal , n is "<<metrics[ip][t].n <<"\n";
+	  //cout<<" normal , n is "<<metrics[ip][t].n <<"\n";
 	}
       else
 	{
+	  
 	  //cout<<"IP "<<ip<<" time "<<time<<" type "<<t<<" ct "<<ct<<" value "<<data<<" samples "<<metrics[ip][t].n<<" max "<<metrics[ip][t].records[ct].max<<" mean "<<metrics[ip][t].records[ct].mean<<" std "<<std<<" cusum "<< metrics[ip][t].records[ct].cusum;
 	  //cout<<" anomalous\n";
 	  // Tag as abnormal
@@ -495,7 +497,7 @@ void update_means(unsigned int ip, enum type t, struct bcell value, unsigned int
     }
   stats[ip].statsdata[time].data[t].tag = tag;
   stats[ip].statsdata[time].data[t].rtag = rtag;
-       
+
   //cout<<"IP "<<ip<<" time "<<time<<" type "<<t<<" tag "<<tag<<" rtag "<<rtag<<endl;
   if (tag == 0 && rtag == 0)
     {
@@ -561,14 +563,18 @@ void update_means(unsigned int ip, enum type t, struct bcell value, unsigned int
   metrics[ip][t].ltime = time;      
 }
 
-void tag_flows()
+void tag_flows(bool force)
 {
   for(auto it = stats.begin(); it != stats.end(); it++)
     {
       unsigned int ip = it->first;
       // See if we need to tag or not
-      if (stats[ip].statsdata.size() < LIMITSIZE)
-	continue;
+      if (stats[ip].statsdata.size() < LIMITSIZE && !force)
+	{
+	  stats[ip].tagged = false;
+	  continue;
+	}
+      stats[ip].tagged = true;
       cout<<"Tagging "<<ip<<" samples "<<stats[ip].statsdata.size()<<endl;
       // Initialize
       if (metrics.find(ip) == metrics.end())
@@ -607,7 +613,8 @@ void tag_flows()
 	      value.rvol = 0;
 	      value.rpkts = 0;
 	      value = cit->second;
-	      //cout<<"\n\nTime "<<time<<" type "<<t<<" srcs "<<value.srcs<<" vol "<<value.vol<<" flows "<<value.flows<<endl;
+	      
+	      //cout<<"\n\nTime "<<time<<" type "<<t<<" srcs "<<value.srcs<<" vol "<<value.vol<<" pkts "<<value.pkts<<endl;
 	      calc_cusum(ip, t, value, time);
 	      update_means(ip, t, value, time);
 	    }
@@ -632,15 +639,17 @@ void read_from_file(void* nf, char* format, string file_in)
     {
       //cout<<"Read "<<saveline<<endl;
       count ++;
-      if (count >= 1000000)
+      if (count >= 10000000)
 	{
 	  long diff = (long)endtime - starttime;
 	  cout<<"Tagging at time "<<std::fixed<<endtime<<" elapsed "<<diff<<"\n\n";
-	  tag_flows();
+	  tag_flows(false);
 	  print_stats((string)file_in+".tags");
 	  count = 0;
 	}
     }
+  tag_flows(true);
+  print_stats((string)file_in+".tags");
 }
 
 
@@ -752,8 +761,6 @@ int main (int argc, char *argv[])
       sprintf(cmd,"gunzip -c %s", file);
       nf = popen(cmd, "r");
       read_from_file(nf, format, file);
-      tag_flows();      
-      print_stats((string)file+".tags");
       sprintf(cmd,"%s.tags", file);
       char* argv[256];
       argv[0] = "gzip";

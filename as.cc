@@ -989,12 +989,6 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic to LHOST/LPREF
 	      d_bucket = myhash(flow.dst, 0, way);
-	      if (toip(flow.dst) == "15.82.213.138")
-		{
-		  cout<<std::fixed<<start<<"Dbucket is "<<d_bucket<<" way "<<way<<endl;
-		}
-	      //if (d_bucket == 6091)
-		//	cout<<std::fixed<<start<<" "<<end<<" "<<way<<" from1 "<<toip(flow.src)<<" to "<<toip(flow.dst)<<" proto "<<int(flow.proto)<<" len "<<len<<" oci "<<oci<<" vol in brick "<<c->databrick_p[d_bucket]<<" oci in brick "<<c->databrick_s[d_bucket]<<" rec "<<c->databrick_rec[d_bucket]<<" sent "<<c->databrick_sent[d_bucket]<<endl;
 	      
 	      if (way == LHSYN  || way == LPSYN)
 		if (flow.flags != SYN || flow.proto != TCP)
@@ -1010,10 +1004,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 		  continue;
 	      c->databrick_p[d_bucket] += len;
 	      c->databrick_rec[d_bucket] += oci;
-	      if (toip(flow.dst) == "15.82.213.138")
-		{
-		  cout<<std::fixed<<start<<"Dbucket is "<<d_bucket<<" len "<<c->databrick_p[d_bucket]<<" rec "<<c->databrick_rec[d_bucket]<<" sent "<<c->databrick_sent[d_bucket]<<endl;
-		}
+
 	      addSample(d_bucket, &fp, way);
 	      instant_detect(c, curtime, d_bucket);
 	    }
@@ -1021,8 +1012,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic from LHOST/LPREF
 	      s_bucket = myhash(flow.src, 0, way);
-	      //if (s_bucket == 6091)
-	      // cout<<std::fixed<<start<<" "<<end<<" "<<way<<" from2 "<<toip(flow.src)<<" to "<<toip(flow.dst)<<" proto "<<int(flow.proto)<<" len "<<len<<" oci "<<oci<<" vol in brick "<<c->databrick_p[s_bucket]<<" oci in brick "<<c->databrick_s[s_bucket]<<" rec "<<c->databrick_rec[s_bucket]<<" sent "<<c->databrick_sent[s_bucket]<<endl;
+
 	      if (way == LHSYN || way == LPSYN)
 		if ((flow.flags != SYNACK && flow.flags != ACK && flow.flags != RST) || flow.proto != TCP)
 		  continue;
@@ -1074,14 +1064,10 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic to LPORT
 	      d_bucket = myhash(0, flow.dport, way);
-	      //if (d_bucket == 6091)
-	      //cout<<std::fixed<<start<<" "<<end<<" "<<way<<" from5 "<<toip(flow.src)<<" to "<<toip(flow.dst)<<" proto "<<int(flow.proto)<<" len "<<len<<" oci "<<oci<<" vol in brick "<<c->databrick_p[d_bucket]<<" oci in brick "<<c->databrick_s[d_bucket]<<" rec "<<c->databrick_rec[d_bucket]<<" sent "<<c->databrick_sent[d_bucket]<<endl;	      
+
 	      c->databrick_p[d_bucket] += len;
 	      c->databrick_rec[d_bucket] += oci;
-	      if (toip(flow.dst) == "15.82.213.138")
-		{
-		  cout<<std::fixed<<start<<"Dbucket2 is "<<d_bucket<<" len "<<c->databrick_p[d_bucket]<<" rec "<<c->databrick_rec[d_bucket]<<" sent "<<c->databrick_sent[d_bucket]<<endl;
-		}
+
 	      addSample(d_bucket, &fp, way);
 	      instant_detect(c, curtime, d_bucket);
 	    }
@@ -1089,8 +1075,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic from LPORT
 	      s_bucket = myhash(0, flow.sport, way);
-	      //if (s_bucket == 6091)
-	      //cout<<std::fixed<<start<<" "<<end<<" "<<way<<" from6 "<<toip(flow.src)<<" to "<<toip(flow.dst)<<" proto "<<int(flow.proto)<<" len "<<len<<" oci "<<oci<<" vol in brick "<<c->databrick_p[s_bucket]<<" oci in brick "<<c->databrick_s[s_bucket]<<" rec "<<c->databrick_rec[s_bucket]<<" sent "<<c->databrick_sent[s_bucket]<<endl;
+
 	      c->databrick_p[s_bucket] -= len;
 	      c->databrick_sent[s_bucket] += oci;
 	      instant_detect(c, curtime, s_bucket);
@@ -1102,8 +1087,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic from FPORT
 	      s_bucket = myhash(flow.dst, flow.sport, way);
-	      //if (s_bucket == 6091)
-	      //cout<<std::fixed<<start<<" "<<end<<" "<<way<<" from7 "<<toip(flow.src)<<" to "<<toip(flow.dst)<<" proto "<<int(flow.proto)<<" len "<<len<<" oci "<<oci<<" vol in brick "<<c->databrick_p[s_bucket]<<" oci in brick "<<c->databrick_s[s_bucket]<<" rec "<<c->databrick_rec[s_bucket]<<" sent "<<c->databrick_sent[s_bucket]<<endl;
+
 	      c->databrick_p[s_bucket] += len;
 	      c->databrick_rec[s_bucket] += oci;
 	      addSample(s_bucket, &fp, way);
@@ -1113,8 +1097,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic to FPORT
 	      d_bucket = myhash(flow.src, flow.dport, way);
-	      //if (d_bucket == 6091)
-	      //cout<<std::fixed<<start<<" "<<end<<" "<<way<<" from8 "<<toip(flow.src)<<" to "<<toip(flow.dst)<<" proto "<<int(flow.proto)<<" len "<<len<<" oci "<<oci<<" vol in brick "<<c->databrick_p[d_bucket]<<" oci in brick "<<c->databrick_s[d_bucket]<<" rec "<<c->databrick_rec[d_bucket]<<" sent "<<c->databrick_sent[d_bucket]<<endl;
+
 	      c->databrick_p[d_bucket] -= len;
 	      c->databrick_sent[d_bucket] += oci;
 	      instant_detect(c, curtime, d_bucket);
@@ -1126,8 +1109,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic to LPORT
 	      d_bucket = myhash(flow.dst, flow.dport, way);
-	      //if (d_bucket == 6091)
-	      //cout<<std::fixed<<start<<" "<<end<<" "<<way<<" from9 "<<toip(flow.src)<<" to "<<toip(flow.dst)<<" proto "<<int(flow.proto)<<" len "<<len<<" oci "<<oci<<" vol in brick "<<c->databrick_p[d_bucket]<<" oci in brick "<<c->databrick_s[d_bucket]<<" rec "<<c->databrick_rec[d_bucket]<<" sent "<<c->databrick_sent[d_bucket]<<endl;
+
 	      c->databrick_p[d_bucket] += len;
 	      c->databrick_rec[d_bucket] += oci;
 	      addSample(d_bucket, &fp, way);
@@ -1137,8 +1119,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      // traffic from LPORT
 	      s_bucket = myhash(flow.src, flow.sport, way);
-	      //if (s_bucket == 6091)
-	      //cout<<std::fixed<<start<<" "<<end<<" "<<way<<" from10 "<<toip(flow.src)<<" to "<<toip(flow.dst)<<" proto "<<int(flow.proto)<<" len "<<len<<" oci "<<oci<<" vol in brick "<<c->databrick_p[s_bucket]<<" oci in brick "<<c->databrick_s[s_bucket]<<" rec "<<c->databrick_rec[s_bucket]<<" sent "<<c->databrick_sent[s_bucket]<<endl;
+
 	      c->databrick_p[s_bucket] -= len;
 	      c->databrick_sent[s_bucket] += oci;
 	      instant_detect(c, curtime, s_bucket);

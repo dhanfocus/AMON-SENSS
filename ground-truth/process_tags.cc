@@ -325,6 +325,8 @@ double read_one_line(void* nf, char* line)
       int vol[18];
       int pkts[18];
       int rpkts[18];
+      int srcs[18];
+      int dsts[18];
       
       for (int i = 0; i<18; i++)
 	{
@@ -333,6 +335,8 @@ double read_one_line(void* nf, char* line)
 	  pkts[i] = 0;
 	  rpkts[i] = 0;
 	  vol[i] = 0;
+	  srcs[i] = 0;
+	  dsts[i] = 0;
 	}
       // Ignore UDP floods and total traffic and just work on the rest
       for(int i=1; i<dl-1; i+=9) // trailing comma
@@ -364,6 +368,8 @@ double read_one_line(void* nf, char* line)
 	  pkts[t] = b.pkts;
 	  rpkts[t] = b.rpkts;
 	  vol[t] = b.vol;
+	  dsts[t] = b.dsts;
+	  srcs[t] = b.srcs;
 	}
       bool norevan = true;
       bool notcp = true;
@@ -391,15 +397,15 @@ double read_one_line(void* nf, char* line)
 		  isattack = true;
 		  break;
 		case 4:
-		  if (!anomalous(rtags[3]) && rpkts[3] < pkts[i])
+		  if (!anomalous(rtags[3]) && rpkts[3] < pkts[i] && dsts[3] < srcs[i])
 		    isattack = true;
 		  break;
 		case 5:
-		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i])
-		    isattack = true;
+		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i] && dsts[i] < srcs[i])
+		      isattack = true;
 		  break;
 		case 6:
-		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i])
+		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i] && dsts[i] < srcs[i])
 		    isattack = true;
 		  break;
 		case 7:
@@ -409,7 +415,7 @@ double read_one_line(void* nf, char* line)
 		  isattack = true;
 		  break;
 		case 9:
-		  if (!anomalous(rtags[3]) && rpkts[3] < pkts[i])
+		  if (!anomalous(rtags[3]) && rpkts[3] < pkts[i] && dsts[3] < srcs[i])
 		    isattack = true;
 		  break;
 		case 10:
@@ -417,26 +423,26 @@ double read_one_line(void* nf, char* line)
 		    isattack = true;
 		  break;
 		case 11:
-		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i])
+		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i] && dsts[i] < srcs[i])
 		    isattack = true;
 		  break;
 		case 12:
-		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i])
+		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i] && dsts[i] < srcs[i])
 		    isattack = true;
 		  break;
 		case 13:
-		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i])
+		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i] && dsts[i] < srcs[i])
 		    isattack = true;
 		  break;
 		case 14:
-		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i])
+		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i] && dsts[i] < srcs[i])
 		    isattack = true;
 		  break;
 		case 15:
 		  isattack = true;
 		  break;
 		case 16:
-		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i])
+		  if (!anomalous(rtags[i]) && rpkts[i] < pkts[i] && dsts[i] < srcs[i])
 		    isattack = true;
 		  break;
 		case 17:
