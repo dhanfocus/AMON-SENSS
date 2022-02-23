@@ -201,6 +201,7 @@ amonProcessing(flow_t flow, double len, double start, double end, double oci, in
   end = (unsigned int) end;
   if (laststats > 0 && laststats > start)
     start = laststats;
+  //cout<<toip(flow.src)<<":"<<flow.sport<<" -> "<<toip(flow.dst)<<":"<<flow.dport<<" start "<<std::fixed<<start<<" end "<<end<<" len "<<len<<" oci "<<oci<<" flag "<<flow.flags<<endl;
   // Incoming flow
   if (flow.dlocal && !flow.slocal)
     {
@@ -218,7 +219,6 @@ amonProcessing(flow_t flow, double len, double start, double end, double oci, in
 	      stats[flow.dst][t] = c;
 	      map<type,bcell> b;
 	      stats[flow.dst][t].data = b;
-
 	    }
 	}
       // Figure out labels
@@ -234,15 +234,25 @@ amonProcessing(flow_t flow, double len, double start, double end, double oci, in
 	labels.insert(UDPT);
       else if (flow.proto == ICMP)
 	labels.insert(ICMPT);
-      else if (flow.flags == 2)
-	labels.insert(SYNT);
-      else if (flow.flags == 16)
-	labels.insert(ACKT);
-      else if (flow.flags == 18)
-	labels.insert(SYNACKT);
-      else if (flow.flags & 4 != 0)
-	labels.insert(RSTT);
-
+      else
+	{
+	  if (flow.flags == 18)
+	    labels.insert(SYNACKT);
+	  else
+	    {
+	      if (flow.flags == 2)
+		labels.insert(SYNT);
+	      if (flow.flags == 16)
+		labels.insert(ACKT);
+	    }
+	  //cout<<"TCP flags "<<flow.flags<<" test "<<(flow.flags & 4)<<endl;
+	  if ((flow.flags & 4) > 0)
+	    {
+	      //cout<<"Label RSTT\n";
+	      labels.insert(RSTT);
+	    }
+	}
+      
       // Application
       if (flow.sport == 123)
 	labels.insert(NTPR);
@@ -282,12 +292,13 @@ amonProcessing(flow_t flow, double len, double start, double end, double oci, in
 		}
 
 	      stats[flow.dst][t].data[ty].vol += (int)len;
+	      
 	      if (ty == TOTAL)
 		stats[flow.dst][t].data[ty].pkts += (int) ooci;
 	      else
 		stats[flow.dst][t].data[ty].pkts += (int) oci;
 	      stats[flow.dst][t].data[ty].srcs.insert(flow.src);
-	      //cout<<"Dst "<<toip(flow.dst)<<" Type "<<ty<<" time "<<t<<" vol "<<stats[flow.dst][t].data[ty].vol<<endl;
+	      //cout<<"Dst "<<toip(flow.dst)<<" Type "<<ty<<" time "<<t<<" pkts "<<stats[flow.dst][t].data[ty].pkts<<endl;
 	    }
 	}
     }

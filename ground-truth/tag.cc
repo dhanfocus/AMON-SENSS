@@ -69,7 +69,7 @@
 
 #define THRESH 5
 #define NUMSTD 3
-#define LIMITSIZE 50
+#define LIMITSIZE 100
 #define BETA 0.9
 using namespace std;
 
@@ -569,13 +569,14 @@ void tag_flows(bool force)
     {
       unsigned int ip = it->first;
       // See if we need to tag or not
-      if (stats[ip].statsdata.size() < LIMITSIZE && !force)
+      if ((stats[ip].statsdata.size() < LIMITSIZE && !force) || (stats[ip].statsdata.size() < 10))
 	{
+	  //cout<<"Skipping "<<toip(ip)<<" samples "<<stats[ip].statsdata.size()<<" force "<<force<<endl;
 	  stats[ip].tagged = false;
 	  continue;
 	}
       stats[ip].tagged = true;
-      cout<<"Tagging "<<ip<<" samples "<<stats[ip].statsdata.size()<<endl;
+      //cout<<"Tagging "<<toip(ip)<<" samples "<<stats[ip].statsdata.size()<<endl;
       // Initialize
       if (metrics.find(ip) == metrics.end())
 	{
@@ -648,7 +649,6 @@ void read_from_file(void* nf, char* format, string file_in)
 	  count = 0;
 	}
     }
-  tag_flows(true);
   print_stats((string)file_in+".tags");
 }
 
@@ -710,8 +710,9 @@ int main (int argc, char *argv[])
 	      if ((dir = opendir (inputs[i].c_str())) != NULL) {
 		// Remember all the files and directories within directory 
 		while ((ent = readdir (dir)) != NULL) {
-		  if((strcmp(ent->d_name,".") != 0) && (strcmp(ent->d_name,"..") != 0)){
+		  if((strcmp(ent->d_name,".") != 0) && (strcmp(ent->d_name,"..") != 0) && (strstr(ent->d_name,"tags") == 0)){
 		    inputs.push_back(string(inputs[i]) + "/" + string(ent->d_name));
+		    cout<<"Will read "<<ent->d_name<<endl;
 		  }
 		}
 		closedir (dir);
@@ -761,6 +762,13 @@ int main (int argc, char *argv[])
       sprintf(cmd,"gunzip -c %s", file);
       nf = popen(cmd, "r");
       read_from_file(nf, format, file);
+      if (*vit == tracefiles.back())
+	{
+	    tag_flows(true);
+	    print_stats((string)file_in+".tags");
+	}
+      stats.clear();
+      cout<<"Stats size "<<stats.size()<<" metrics size "<<metrics.size()<<endl;
       sprintf(cmd,"%s.tags", file);
       char* argv[256];
       argv[0] = "gzip";
@@ -777,7 +785,7 @@ int main (int argc, char *argv[])
       else
 	{
 	}
-
+      pclose(nf);
     }
   return 0;
 }
