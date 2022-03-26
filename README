@@ -11,10 +11,11 @@ down just to attacks for which we have high confidence.
 See the INSTALL file for detailed information about how to configure
 and install AMON-SENSS.
 
-Run the Perl script amon-senss.config to configure the parameters via a dialogue. 
+Run the Perl script autoconfig to configure the parameters via a dialogue. 
 Specifically, parameter min_oci will govern how large an estimated attack's
 packet rate must be to warrant printing an alert. If you are seeing too many
-alerts try specifying a higher value for min_oci.
+alerts try specifying a higher value for min_oci. However, you can always
+increase RATE parameter in read_alerts to only focus on high-rate attacks.
 
 ==== RUNNING ====
 
@@ -25,7 +26,7 @@ Service ports of interest are in services.txt file. You don't need to change
 this file.
 
 Typical usage:
-  ./as -r /folder-w-nfdump -F nf -f > /dev/null
+  ./amonsenss -r /folder-w-nfdump -F nf -f > /dev/null
 
 AMON-SENSS expects as input one or more files with Netflow records
 (nfdump or flow-tools format), pcap or Flowride records.
@@ -34,11 +35,11 @@ the program will read all the folder(s)
 contents, sort by file name and process files in this order.
 
 AMON-SENSS produces alerts in alerts.txt file in real time. Ongoing attacks
-will result in steady stream of alerts. You can manage this file with logrotate
-to ensure it doesn't grow too large.
+will result in steady stream of alerts. AMON-SENSS uses a simple bash script -- rotate --
+to rotate this file.
 
 If you run the code with -v flag, it will also produce debugging output, which is
-very verbose. 
+very verbose. So use this option sparingly.
 
 Use read_alerts tool to get condensed START/STOP messages for attacks.
 

@@ -1,15 +1,14 @@
 #!/usr/bin/perl
-# Merge alerts 
+# Merge and print alerts from a text file in condensed format
 # Specify alerts.txt file on the command line
 # Alerts will be printed with delay DELAY_START
 # Attack end is detected with delay DELAY_END
-# Alerts must have packet rate above PKTS to be printed
+# Alerts must have rate above RATE Gbps to be printed
 
 $|=1;
 
 $DELAY_START = 10;
-$DELAY_END = 60;
-$PKTS = 1;
+$DELAY_END = 300;
 $RATE = 0;
 $UPDATE = 0;
 
@@ -82,6 +81,7 @@ sub printalert
 		print "$t; ";
 	    }
 	}
+	print "votes " . $alerts{$target}{'votes'};
 	print "\n";
     }
 
@@ -89,7 +89,7 @@ sub printalert
 
 sub cleanalerts
 {
-    $curtime = shift;
+    ($curtime, $force) = @_;
     @salerts = keys %alerts;
     for my $t (@salerts)
     {
@@ -97,14 +97,14 @@ sub cleanalerts
 	if ($curtime - $alerts{$t}{'start'} > $DELAY_START && $alerts{$t}{'print'} == 1 && $alerts{$t}{'pkts'} >= $PKTS)
 	{
 	    if ($diff > 0)
-	    {
+	    {		
 		#printalert($t, 'START');
 		$alerts{$t}{'print'} = 0;
 	    }
 	}
-	if ($curtime - $alerts{$t}{'end'} > $DELAY_END)
+	if ($force || $curtime - $alerts{$t}{'end'} > $DELAY_END)
 	{
-	    if ($alerts{$t}{'print'} == 0)
+	    if ($alerts{$t}{'print'} == 0 && $alerts{$t}{'pkts'} > $PKTS)
 	    {
 		printalert($t, 'END');
 	    }
@@ -125,7 +125,7 @@ for (;;) {
     # For interactive printing
     if (time() - $lasttime > $DELAY_START)
     {
-	cleanalerts(time());
+	cleanalerts(time(), 0);
     }
     $curtime = 0;
     for (; $_ = readline($FH); $curpos = tell($FH))
@@ -137,10 +137,11 @@ for (;;) {
 	$bytes = $items[5];
 	$pkts = $items[6];
 	$text = "";
+	#print "$_";
 	if ($curtime == 0 || $time > $curtime)
 	{
 	    $curtime = $time;
-	    cleanalerts($time);
+	    cleanalerts($time, 0);
 	}
 	for ($i=7; $i <= $#items; $i++)
 	{
@@ -169,90 +170,92 @@ for (;;) {
 	{
 	    next;
 	}
-	else
+	if ($_ =~ m/(.*)(src port 443)/)
 	{
-	    $type = 0;
-	    if ($_ =~ /proto udp/)
+	    next;
+	}
+	$type = 0;
+	if ($_ =~ /proto udp/)
+	{
+	    if ($_ =~ /src port 53\s/)
 	    {
-		if ($_ =~ /src port 53\s/)
-		{
-		    $type = 1;
-		}
-		elsif ($_ =~ /src port 0/)
-		{
-		    $type = 8;	
-		}
-		elsif ($_ =~ /src port 389\s/)
-		{
-		    $type = 16;	
-		}
-		elsif ($_ =~ /src port 123\s/)
-		{
-		    $type = 256;	
-		}
-		elsif ($_ =~ /src port 5353\s/)
-		{
-		    $type = 2048;
-		}
-		elsif ($_ =~ /src port 19\s/)
-		{
-		    $type = 16384;
-		}
-		elsif ($_ =~ /src port 1701\s/)
-		{
-		    $type = 32768;
-		}
-		elsif ($_ =~ /src port 11211\s/)
-		{
-		    $type = 65536;
-		}
-		elsif ($_ =~ /dst port 53\s/)
-		{
-		    $type = 131072;
-		}
-		elsif ($_ =~ /dst port 111\s/)
-		{
-		    $type = 262144;
-		}
+		$type = 1;
 	    }
-	    elsif ($_ =~ /proto icmp/)
+	    elsif ($_ =~ /src port 0/ || $_ =~ /dst port 0/) 
 	    {
-		$type = 2;
+		$type = 8;	
 	    }
-	    elsif (($_ =~ /proto tcp/ && $_ =~ /flags 2/) || ($_ =~ /proto tcp/ && $_ =~ /flags 0/))
+	    elsif ($_ =~ /src port 389\s/)
 	    {
-		$type = 8192;
+		$type = 16;	
 	    }
-	    elsif ($_ =~ /proto tcp/ && $_ =~ /flags 16/)
+	    elsif ($_ =~ /src port 123\s/)
 	    {
-		$type = 512;
+		$type = 256;	
 	    }
-	    elsif ($_ =~ /proto tcp/ && $_ =~ /flags 18/)
+	    elsif ($_ =~ /src port 5353\s/)
 	    {
-		$type = 32;
+		$type = 2048;
 	    }
-	    elsif ($_ =~ /proto tcp/ && $_ =~ /flags 4/)
+	    elsif ($_ =~ /src port 19\s/)
 	    {
-		$type = 64;
+		$type = 16384;
 	    }
-	    if ($type == 0)
+	    elsif ($_ =~ /src port 1701\s/)
 	    {
-		next;
+		$type = 32768;
 	    }
+	    elsif ($_ =~ /src port 11211\s/)
+	    {
+		$type = 65536;
+	    }
+	    elsif ($_ =~ /dst port 53\s/)
+	    {
+		$type = 131072;
+	    }
+	    elsif ($_ =~ /dst port 111\s/)
+	    {
+		$type = 262144;
+	    }
+	}
+	elsif ($_ =~ /proto icmp/)
+	{
+	    $type = 2;
+	}
+	elsif (($_ =~ /proto tcp/ && $_ =~ /flags 2/) || ($_ =~ /proto tcp/ && $_ =~ /flags 0/))
+	{
+	    $type = 8192;
+	}
+	elsif ($_ =~ /proto tcp/ && $_ =~ /flags 16/)
+	{
+	    $type = 512;
+	}
+	elsif ($_ =~ /proto tcp/ && $_ =~ /flags 18/)
+	{
+	    $type = 32;
+	}
+	elsif ($_ =~ /proto tcp/ && $_ =~ /flags 4/)
+	{
+	    $type = 64;
 	}
 	if (!exists($alerts{$target}))
 	{
-	    $alerts{$target}{'text'}{$text} = 1;
-	    $alerts{$target}{'start'} = $time;
-	    $alerts{$target}{'end'} = $time;
-	    $alerts{$target}{'type'} = $type;
-	    $alerts{$target}{'bytes'} = $bytes;
-	    $alerts{$target}{'pkts'} = $pkts;
-	    $alerts{$target}{'print'} = 1;
+	    if ($type != 0)
+	    {
+		$alerts{$target}{'text'}{$text} = 1;
+		$alerts{$target}{'start'} = $time;
+		$alerts{$target}{'end'} = $time;
+		$alerts{$target}{'type'} = $type;
+		$alerts{$target}{'bytes'} = $bytes;
+		$alerts{$target}{'pkts'} = $pkts;
+		$alerts{$target}{'print'} = 1;
+		$alerts{$target}{'votes'} = 1;
+	    }
 	}
 	else
 	{
-	    if (!exists($alerts{$target}{'text'}{$text}))
+	    $alerts{$target}{'votes'}++;
+	    if (!exists($alerts{$target}{'text'}{$text}) && $type != 0)
 	    {
 		$alerts{$target}{'text'}{$text} = 1;
 		$alerts{$target}{'type'} |= $type;
@@ -285,6 +288,7 @@ for (;;) {
 	    }
 	}
     }
+    cleanalerts($curtime, 1);
     # eof reached on FH, but wait a second and maybe there will be more output
     #sleep 10;
     #seek $FH, $curpos, 0;      # this clears the eof flag on FH

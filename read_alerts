@@ -1,15 +1,15 @@
 #!/usr/bin/perl
-# Merge alerts 
+# Merge and print alerts 
 # Specify alerts.txt file on the command line
 # Alerts will be printed with delay DELAY_START
 # Attack end is detected with delay DELAY_END
-# Alerts must have packet rate above PKTS to be printed
+# Alerts must have packet rate above RATE Gbps to be printed
 
 $|=1;
 
 $DELAY_START = 10;
 $DELAY_END = 300;
-$PKTS = 10000;
+$RATE = 1;
 $UPDATE = 0;
 
 $usage="$0 alerts-file\n";
@@ -99,7 +99,8 @@ sub cleanalerts
     for my $t (@salerts)
     {
 	$diff = $alerts{$t}{'end'} - $alerts{$t}{'start'};
-	if ($curtime - $alerts{$t}{'start'} > $DELAY_START && $alerts{$t}{'print'} == 1 && $alerts{$t}{'pkts'} >= $PKTS)
+	$r = $alerts{$t}{'bytes'}*8/1000000000;
+	if ($curtime - $alerts{$t}{'start'} > $DELAY_START && $alerts{$t}{'print'} == 1 && $r >= $RATE)
 	{
 	    if ($diff > 0)
 	    {
@@ -183,7 +184,7 @@ for (;;) {
 		{
 		    $type = 1;
 		}
-		elsif ($_ =~ /src port 0/)
+		elsif ($_ =~ /src port 0/ || $_ =~ /dst port 0/) 
 		{
 		    $type = 8;	
 		}
@@ -224,7 +225,7 @@ for (;;) {
 	    {
 		$type = 2;
 	    }
-	    elsif ($_ =~ /proto tcp/ && $_ =~ /flags 2/)
+	    elsif (($_ =~ /proto tcp/ && $_ =~ /flags 2/) || ($_ =~ /proto tcp/ && $_ =~ /flags 0/))
 	    {
 		$type = 8192;
 	    }
@@ -247,13 +248,16 @@ for (;;) {
 	}
 	if (!exists($alerts{$target}))
 	{
-	    $alerts{$target}{'text'}{$text} = 1;
-	    $alerts{$target}{'start'} = $time;
-	    $alerts{$target}{'end'} = $time;
-	    $alerts{$target}{'type'} = $type;
-	    $alerts{$target}{'bytes'} = $bytes;
-	    $alerts{$target}{'pkts'} = $pkts;
-	    $alerts{$target}{'print'} = 1;
+	    if ($type != 0)
+	    {
+		$alerts{$target}{'text'}{$text} = 1;
+		$alerts{$target}{'start'} = $time;
+		$alerts{$target}{'end'} = $time;
+		$alerts{$target}{'type'} = $type;
+		$alerts{$target}{'bytes'} = $bytes;
+		$alerts{$target}{'pkts'} = $pkts;
+		$alerts{$target}{'print'} = 1;
+	    }
 	}
 	else
 	{
