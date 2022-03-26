@@ -121,6 +121,7 @@ if ($#ARGV < 0)
 $lasttime = time();
 open($FH,'<',$ARGV[0]) || die("no such file ", $ARGV[0]);
 $curpos = tell($FH);
+print "#target start end pkts Gbps Bps signatures votes\n";
 for (;;) {
     # For interactive printing
     if (time() - $lasttime > $DELAY_START)
