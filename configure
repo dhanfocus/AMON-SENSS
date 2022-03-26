@@ -585,7 +585,7 @@ PACKAGE_STRING='AMON-SENSS 1.1'
 PACKAGE_BUGREPORT='sunshine@isi.edu'
 PACKAGE_URL=''
 
-ac_unique_file="as.cc"
+ac_unique_file="amonsenss.cc"
 # Factoring default headers for most tests.
 ac_includes_default="\
 #include <stdio.h>
@@ -4490,7 +4490,6 @@ else
 fi
 
 
-#AC_LIB_LINKFLAGS([mysqlcppconn])
 # Checks for header files.
 ac_ext=c
 ac_cpp='$CPP $CPPFLAGS'
@@ -4889,7 +4888,7 @@ fi
 done
 
 
-for ac_header in cppconn/driver.h arpa/inet.h fcntl.h locale.h netdb.h netinet/in.h stdint.h string.h sys/socket.h sys/time.h unistd.h
+for ac_header in arpa/inet.h fcntl.h locale.h netdb.h netinet/in.h stdint.h string.h sys/socket.h sys/time.h unistd.h
 do :
   as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
 ac_fn_c_check_header_mongrel "$LINENO" "$ac_header" "$as_ac_Header" "$ac_includes_default"
