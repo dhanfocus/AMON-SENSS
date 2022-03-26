@@ -20,11 +20,11 @@ print "Welcome to AMON-SENSS configuration. We will ask you a few questions\n";
 print "to customize parameters to your needs. You can input new values or\n";
 print "press ENTER to keep default values.\n\n";
     
-print "How often (in seconds) should detection process run? (default = 3) ";
+print "How often (in seconds) should detection process run? (default = 1) ";
 $input = <STDIN>;
 if (trim($input) eq "")
 {
-    print $fh "interval=3\n";
+    print $fh "interval=1\n";
 }
 else
 {
