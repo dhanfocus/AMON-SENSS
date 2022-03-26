@@ -1,3 +1,3 @@
-bin_PROGRAMS = as
-as_SOURCES = as.cc utils.cc
+bin_PROGRAMS = amonsenss
+amonsenss_SOURCES = amonsenss.cc utils.cc
 

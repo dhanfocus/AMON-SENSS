@@ -27,6 +27,8 @@
 #include <iostream>
 #include <fstream>
 
+extern int shuffle_index;
+
 // We need this so sort would work
 namespace patch
 {
@@ -158,7 +160,7 @@ extern int shuffle_index;
 // Simple hash function
 // Take the second and third bytes, convert into int and mod
 // Use service port instead of the last byte
-int myhash(u_int32_t ip, unsigned short port, int way)
+int myhash(u_int32_t ip, unsigned short port, int way, int BRICKU)
 {
   // 1 - local ip, 2 - local pref /24, 3 - foreign port, 4 - local port,
   // 5 - localip+forport, 6 - localip+localport, 7 - localpref+forport, 8 - localpref+localport
@@ -172,37 +174,37 @@ int myhash(u_int32_t ip, unsigned short port, int way)
       switch (way)
 	{
 	case LHOST:
-	  return ip % BRICK_UNIT + shuffle_index;
+	  return ip % BRICKU + shuffle_index;
 	case LPREF:
-	  return ((ip & 0xffffff00) % BRICK_UNIT) + BRICK_UNIT + 2*shuffle_index;
+	  return ((ip & 0xffffff00) % BRICKU) + BRICKU + 2*shuffle_index;
 	case FPORT:
-	  return (port % BRICK_UNIT) + 2*BRICK_UNIT + 3*shuffle_index;
+	  return (port % BRICKU) + 2*BRICKU + 3*shuffle_index;
 	case LPORT:
-	  return (port % BRICK_UNIT) + 3*BRICK_UNIT + 4*shuffle_index;
+	  return (port % BRICKU) + 3*BRICKU + 4*shuffle_index;
 	case LHFPORT:
-	  return ((ip + port) % BRICK_UNIT) + 4*BRICK_UNIT + 5*shuffle_index;
+	  return ((ip + port) % BRICKU) + 4*BRICKU + 5*shuffle_index;
 	case LHLPORT:
-	  return ((ip + port) % BRICK_UNIT) + 5*BRICK_UNIT  + 6*shuffle_index;
+	  return ((ip + port) % BRICKU) + 5*BRICKU + 6*shuffle_index;
 	case LPFPORT:
-	  return (((ip & 0xffffff00) + port) % BRICK_UNIT) + 6*BRICK_UNIT + 7*shuffle_index;
+	  return (((ip & 0xffffff00) + port) % BRICKU) + 6*BRICKU + 7*shuffle_index;
 	case LPLPORT:
-	  return (((ip & 0xffffff00) + port) % BRICK_UNIT) + 7*BRICK_UNIT + 8*shuffle_index;
+	  return (((ip & 0xffffff00) + port) % BRICKU) + 7*BRICKU + 8*shuffle_index;
 	case LHSYN:
-	  return (ip % BRICK_UNIT) + 8*BRICK_UNIT  + 9*shuffle_index;
+	  return (ip % BRICKU) + 8*BRICKU + 9*shuffle_index;
 	case LPSYN:
-	  return ((ip & 0xffffff00) % BRICK_UNIT) + 9*BRICK_UNIT + 10*shuffle_index;
+	  return ((ip & 0xffffff00) % BRICKU) + 9*BRICKU + 10*shuffle_index;
 	case LHSYNACK:
-	  return (ip % BRICK_UNIT) + 10*BRICK_UNIT + 11*shuffle_index;
+	  return (ip % BRICKU) + 10*BRICKU + 11*shuffle_index;
 	case LPSYNACK:
-	  return ((ip & 0xffffff00) % BRICK_UNIT) + 11*BRICK_UNIT + 12*shuffle_index;
+	  return ((ip & 0xffffff00) % BRICKU) + 11*BRICKU + 12*shuffle_index;
 	case LHACK:
-	  return (ip % BRICK_UNIT) + 12*BRICK_UNIT + 13*shuffle_index;
+	  return (ip % BRICKU) + 12*BRICKU + 13*shuffle_index;
 	case LPACK:
-	  return ((ip & 0xffffff00) % BRICK_UNIT) + 13*BRICK_UNIT + 14*shuffle_index;
+	  return ((ip & 0xffffff00) % BRICKU) + 13*BRICKU  + 14*shuffle_index;
 	case LHRST:
-	  return (ip % BRICK_UNIT) + 14*BRICK_UNIT  + 15*shuffle_index;
+	  return (ip % BRICKU) + 14*BRICKU + 15*shuffle_index;
 	case LPRST:
-	  return ((ip & 0xffffff00) % BRICK_UNIT) + 15*BRICK_UNIT + 16*shuffle_index;
+	  return ((ip & 0xffffff00) % BRICKU) + 15*BRICKU + 16*shuffle_index;
 	default:
 	  return 0;
 	}

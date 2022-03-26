@@ -30,11 +30,12 @@
 
 using namespace std;
 
+#define NUMB 5                     // How many different brick layers
 #define ADELAY 35
 #define NUMF 16                    // How many ways do we bin the traffic
 enum ways{LHOST, LPREF, FPORT, LPORT, LHFPORT, LHLPORT, LPFPORT, LPLPORT, LHSYN, LPSYN, LHSYNACK, LPSYNACK, LHACK, LPACK, LHRST, LPRST};
 
-#define BRICK_UNIT 13337            // How many bins we have. This should NOT be a power of 2
+#define BRICK_UNIT 3337            // How many bins we have. This should NOT be a power of 2
 #define BRICK_DIMENSION NUMF*BRICK_UNIT // There are NUMF variants of how we can bin the traffic (e.g., by port, by dst IP, etc.)
 #define SIGTIME 1
 #define REPORT_THRESH 30
@@ -205,7 +206,7 @@ struct sortbyFilename
 };
 
 // Some function prototypes. Functions are defined in utils.cc
-int myhash(u_int32_t ip, unsigned short port, int way);
+int myhash(u_int32_t ip, unsigned short port, int way, int dim);
 int sgn(double x);
 bool bettersig(flow_t a, flow_t b);
 string printsignature(flow_t s);

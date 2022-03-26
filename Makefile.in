@@ -86,7 +86,7 @@ POST_INSTALL = :
 NORMAL_UNINSTALL = :
 PRE_UNINSTALL = :
 POST_UNINSTALL = :
-bin_PROGRAMS = as$(EXEEXT)
+bin_PROGRAMS = amonsenss$(EXEEXT)
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/configure.ac
@@ -102,9 +102,9 @@ CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
 am__installdirs = "$(DESTDIR)$(bindir)"
 PROGRAMS = $(bin_PROGRAMS)
-am_as_OBJECTS = as.$(OBJEXT) utils.$(OBJEXT)
-as_OBJECTS = $(am_as_OBJECTS)
-as_LDADD = $(LDADD)
+am_amonsenss_OBJECTS = amonsenss.$(OBJEXT) utils.$(OBJEXT)
+amonsenss_OBJECTS = $(am_amonsenss_OBJECTS)
+amonsenss_LDADD = $(LDADD)
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -120,7 +120,7 @@ am__v_at_1 =
 DEFAULT_INCLUDES = -I.@am__isrc@
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__maybe_remake_depfiles = depfiles
-am__depfiles_remade = ./$(DEPDIR)/as.Po ./$(DEPDIR)/utils.Po
+am__depfiles_remade = ./$(DEPDIR)/amonsenss.Po ./$(DEPDIR)/utils.Po
 am__mv = mv -f
 CXXCOMPILE = $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) \
 	$(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS)
@@ -135,8 +135,8 @@ AM_V_CXXLD = $(am__v_CXXLD_@AM_V@)
 am__v_CXXLD_ = $(am__v_CXXLD_@AM_DEFAULT_V@)
 am__v_CXXLD_0 = @echo "  CXXLD   " $@;
 am__v_CXXLD_1 = 
-SOURCES = $(as_SOURCES)
-DIST_SOURCES = $(as_SOURCES)
+SOURCES = $(amonsenss_SOURCES)
+DIST_SOURCES = $(amonsenss_SOURCES)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -277,7 +277,7 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-as_SOURCES = as.cc utils.cc
+amonsenss_SOURCES = amonsenss.cc utils.cc
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-am
 
@@ -374,9 +374,9 @@ uninstall-binPROGRAMS:
 clean-binPROGRAMS:
 	-test -z "$(bin_PROGRAMS)" || rm -f $(bin_PROGRAMS)
 
-as$(EXEEXT): $(as_OBJECTS) $(as_DEPENDENCIES) $(EXTRA_as_DEPENDENCIES) 
-	@rm -f as$(EXEEXT)
-	$(AM_V_CXXLD)$(CXXLINK) $(as_OBJECTS) $(as_LDADD) $(LIBS)
+amonsenss$(EXEEXT): $(amonsenss_OBJECTS) $(amonsenss_DEPENDENCIES) $(EXTRA_amonsenss_DEPENDENCIES) 
+	@rm -f amonsenss$(EXEEXT)
+	$(AM_V_CXXLD)$(CXXLINK) $(amonsenss_OBJECTS) $(amonsenss_LDADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
@@ -384,7 +384,7 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/as.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/amonsenss.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/utils.Po@am__quote@ # am--include-marker
 
 $(am__depfiles_remade):
@@ -675,7 +675,7 @@ clean-am: clean-binPROGRAMS clean-generic mostlyclean-am
 
 distclean: distclean-am
 	-rm -f $(am__CONFIG_DISTCLEAN_FILES)
-		-rm -f ./$(DEPDIR)/as.Po
+		-rm -f ./$(DEPDIR)/amonsenss.Po
 	-rm -f ./$(DEPDIR)/utils.Po
 	-rm -f Makefile
 distclean-am: clean-am distclean-compile distclean-generic \
@@ -724,7 +724,7 @@ installcheck-am:
 maintainer-clean: maintainer-clean-am
 	-rm -f $(am__CONFIG_DISTCLEAN_FILES)
 	-rm -rf $(top_srcdir)/autom4te.cache
-		-rm -f ./$(DEPDIR)/as.Po
+		-rm -f ./$(DEPDIR)/amonsenss.Po
 	-rm -f ./$(DEPDIR)/utils.Po
 	-rm -f Makefile
 maintainer-clean-am: distclean-am maintainer-clean-generic
