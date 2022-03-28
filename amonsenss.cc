@@ -1725,6 +1725,9 @@ double read_one_line(void* nf, char* format, char* line, u_char* p,  struct pcap
   if (!strcmp(format, "nf") || !strcmp(format, "ft") || !strcmp(format,"fr"))
     {
       char* s = fgets(line, MAXLINE, (FILE*) nf);
+      if (s == NULL)
+	return -1;
+      
       char tmpline[MAXLINE];
       strcpy(tmpline, line);
       
