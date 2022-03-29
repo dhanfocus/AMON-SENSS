@@ -738,7 +738,7 @@ void instant_detect(cell* c, double ltime, int i, int id)
 	    is_abnormal[id][i] = int(parms["attack_high"]); 
 	  
 	  if (verbose && is_abnormal[id][i]) 
-	    cout<<std::fixed<<ltime<<" id="<<id<<" abnormal for "<<i<<" points "<<is_abnormal[i]<<" oci "<<c->databrick_s[i]<<" ranges " <<avgs<<"+-"<<stds<<", vol "<<c->databrick_p[i]<<" ranges " <<avgv<<"+-"<<stdv<<" over mean "<<d<<" a "<<a<<" b "<<b<<" cusum thresh " << parms["cusum_thresh"]<<endl;
+	    cout<<std::fixed<<ltime<<" id="<<id<<" abnormal for "<<i<<" points "<<is_abnormal[id][i]<<" oci "<<c->databrick_s[i]<<" ranges " <<avgs<<"+-"<<stds<<", vol "<<c->databrick_p[i]<<" ranges " <<avgv<<"+-"<<stdv<<" over mean "<<d<<" a "<<a<<" b "<<b<<" cusum thresh " << parms["cusum_thresh"]<<endl;
 
 	  // If abnormal score is above attack_low
 	  // and oci is above MIN_OCI
