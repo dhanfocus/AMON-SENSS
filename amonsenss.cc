@@ -659,7 +659,7 @@ void findBestSignature(double curtime, int i, cell* c, int id)
 	cout<<"SIG: "<<i<<" for slot "<<s<<" candidate "<<printsignature(samples[id].bins[i].flows[s].flow)<<" v="<<samples[id].bins[i].flows[s].len<<" o="<<samples[id].bins[i].flows[s].oci<<" toto="<<totoci<<" candrate "<<candrate<<" divided "<<candrate/totoci<<endl;
       
       // Potential candidate
-      if (candrate/totoci > parms["filter_thresh"])
+      if (candrate/totoci > parms["filter_thresh"] && samples[id].bins[i].flows[s].oci > parms["min_oci"])
 	{
 	  // Is it a more specific signature?
 	  if (bettersig(samples[id].bins[i].flows[s].flow, bestsig))
@@ -854,6 +854,25 @@ void shuffle(unsigned int addr, int len, int oci, unsigned int curtime)
 	  pthread_mutex_unlock(&final_lock);
 	}
     }
+    if (curtime - firsttime >= parms["min_train"] && !shuffle_done)
+    {
+      pthread_mutex_lock(&final_lock);
+      
+      shuffle_index = memshuffle.size();
+      int index = 0;
+      for (auto mit=memshuffle.begin(); mit != memshuffle.end(); mit++)
+	mit->second.index = index++;
+      
+      BRICK_FINAL = shuffle_index*NUMF+BRICK_DIMENSION;
+      
+      // Malloc everything
+      for (int index = 0; index < NUMB; index++)
+	malloc_all(index, BRICK_FINAL + index*13*NUMF);
+      
+      shuffle_done = true;
+      
+      pthread_mutex_unlock(&final_lock);
+    }
 }
 
 
@@ -872,7 +891,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
   if (flow.proto == UDP && ((isspecial(flow.sport) && !isservice(flow.dport)) ||
 			    (isspecial(flow.dport) && !isservice(flow.sport))))
     return;
-  
+
   if (flow.proto == ICMP)
     {
       flow.sport = -2;
@@ -901,7 +920,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
     lasttime = curtime;
 
   flow_p fp(start, end, len, oci, flow);
-
+  
   for (int index = 0; index < NUMB; index++)
     {
 
@@ -1080,7 +1099,7 @@ amonProcessing(flow_t flow, int len, double start, double end, int oci)
 	    {
 	      if (flow.dlocal && isservice(flow.dport))
 		{
-		  // traffic to LPORT
+		  // traffic to LPORT		  
 		  d_bucket = myhash(0, flow.dport, way, BRICKU);
 		  		  
 		  c->databrick_p[d_bucket] += len;
@@ -1316,7 +1335,7 @@ amonProcessingPcap(u_char* p, struct pcap_pkthdr *h,  double time) // (pcap_pkth
   struct ip ip;
   // Get source and destination IP and port and protocol 
   flow_t flow;
-
+  
   struct ether_header ehdr;
   memcpy (&ehdr, p, sizeof (struct ether_header));
   int eth_type = ntohs (ehdr.ether_type);
@@ -1475,7 +1494,7 @@ amonProcessingFlowride(char* line, double start)
       oci = pkts;
       roci = rpkts;
     }
-  // Don't deal with TCP flows w PUSH flags // Jelena should say "unless they have RST flags"
+  // Don't deal with TCP flows w PUSH flags 
   if (oci == 0)
     return;
 
@@ -1720,7 +1739,7 @@ void signal_callback_handler(int signum) {
 }
 
 // Read one line from file according to format
-double read_one_line(void* nf, char* format, char* line, u_char* p,  struct pcap_pkthdr *h)
+double read_one_line(void* nf, char* format, char* line, u_char*& p,  struct pcap_pkthdr*& h)
 {
   if (!strcmp(format, "nf") || !strcmp(format, "ft") || !strcmp(format,"fr"))
     {
@@ -1763,8 +1782,10 @@ double read_one_line(void* nf, char* format, char* line, u_char* p,  struct pcap
   else if (!strcmp(format,"pcap") || !strcmp(format,"plive"))
     {
       int rc = pcap_next_ex((pcap_t*)nf, &h, (const u_char **) &p);
+
       if (rc <= 0)
-	return 0;
+	return -1;
+      
       struct ether_header* eth_header = (struct ether_header *) p;
       
       if (ntohs(eth_header->ether_type) != ETHERTYPE_IP) 
@@ -1899,7 +1920,6 @@ int main (int argc, char *argv[])
 	      cerr<<"Unknown format "<<format<<endl;
 	      exit(1);
 	    }
-	  cout<<"Format "<<format<<endl;
 	  break;
 	case 'S':
 	  stream_in = true;
