@@ -11,10 +11,12 @@ $DELAY_START = 10;
 $DELAY_END = 300;
 $RATE = 0;
 $UPDATE = 0;
+$VOTES = 10;
 
 $usage="$0 alerts-file\n";
 
 %alerts = ();
+%allow = ();
 
 $mid = 0;
 our $lasttime = 0;
@@ -70,7 +72,7 @@ sub printalert
     $sloc = gettime($start, "loc");
     $eutc = gettime($end, "utc");
     $eloc = gettime($end, "loc");
-    if ($r > $RATE)
+    if ($r > $RATE && $alerts{$target}{'votes'} > $VOTES)
     {
 	print "$target $start $end $apkts $r $bytes ";
 	
@@ -119,10 +121,28 @@ if ($#ARGV < 0)
     exit(1);
 }
 $lasttime = time();
+$fh = new IO::File("allowlist");
+while(<$fh>)
+{
+    $_ =~ s/\n//;
+    $allow{$_} = 1;
+}
+close($fh);
 open($FH,'<',$ARGV[0]) || die("no such file ", $ARGV[0]);
 $curpos = tell($FH);
+$cursize = -s $ARGV[0];
 print "#target start end pkts Gbps Bps signatures votes\n";
 for (;;) {
+    my $size = -s $ARGV[0];
+    if ($size < $cursize)
+    {
+	seek $FH, 0, 0;
+	$cursize = $size;
+    }
+    elsif ($size > $cursize)
+    {
+	$cursize = $size;
+    }
     # For interactive printing
     if (time() - $lasttime > $DELAY_START)
     {
@@ -138,7 +158,6 @@ for (;;) {
 	$bytes = $items[5];
 	$pkts = $items[6];
 	$text = "";
-	#print "$_";
 	if ($curtime == 0 || $time > $curtime)
 	{
 	    $curtime = $time;
@@ -158,6 +177,10 @@ for (;;) {
 	if ($_ =~ m/(.*)(dst ip )(\d+\.\d+\.\d+\.\d+)(.*)/)
 	{
 	    $target = $3;
+	    if (exists($allow{$target}))
+	    {
+		next;
+	    }
 	}
 	else
 	{
@@ -241,7 +264,7 @@ for (;;) {
 	}
 	if (!exists($alerts{$target}))
 	{
-	    if ($type != 0)
+	    if (1) #$type != 0)
 	    {
 		$alerts{$target}{'text'}{$text} = 1;
 		$alerts{$target}{'start'} = $time;
@@ -256,7 +279,7 @@ for (;;) {
 	else
 	{
 	    $alerts{$target}{'votes'}++;
-	    if (!exists($alerts{$target}{'text'}{$text}) && $type != 0)
+	    if (!exists($alerts{$target}{'text'}{$text})) # && $type != 0)
 	    {
 		$alerts{$target}{'text'}{$text} = 1;
 		$alerts{$target}{'type'} |= $type;
@@ -291,7 +314,6 @@ for (;;) {
     }
     cleanalerts($curtime, 1);
     # eof reached on FH, but wait a second and maybe there will be more output
-    #sleep 10;
-    #seek $FH, $curpos, 0;      # this clears the eof flag on FH
-    exit 0;
+    sleep 10;
+    seek $FH, $curpos, 0;      # this clears the eof flag on FH
 }
