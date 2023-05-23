@@ -199,8 +199,6 @@ enum dim{vol, sym};
 double* stats[NUMB][2][3][2];
 double* cusum[NUMB][2];
 
-string label;
-
 // Parameters from as.config
 map<string,double> parms;
 
@@ -1897,7 +1895,7 @@ int main (int argc, char *argv[])
   out.close();
     
   char c, buf[32];
-  char *file_in = NULL;
+  vector<string> file_in;
   bool stream_in = false;
   char *startfile = NULL, *endfile = NULL;
   char* format;
@@ -1925,8 +1923,7 @@ int main (int argc, char *argv[])
 	  stream_in = true;
 	  break;
 	case 'r':
-	  file_in = strdup(optarg);
-	  label = file_in;
+	  file_in.push_back(strdup(optarg));
 	  break;
 	case 'f':
 	  sim_filter = true;
@@ -1947,7 +1944,7 @@ int main (int argc, char *argv[])
 	  break;
 	}
     }
-  if (file_in == NULL && stream_in == 0)
+  if (file_in.empty() && stream_in == 0)
     {
       cerr<<"You must specify an input folder, which holds Netflow records\n";
       exit(-1);
@@ -1984,7 +1981,8 @@ int main (int argc, char *argv[])
 	  inputs.clear();
 	  newfiles.clear();
 	  struct stat s;
-	  inputs.push_back(file_in);
+	  for (auto it=file_in.begin(); it != file_in.end(); it++)
+	    inputs.push_back(*it);
 	  int i = 0;
 	  // Recursively read if there are several directories that hold the files
 	  while(i < inputs.size())
