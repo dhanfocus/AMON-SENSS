@@ -2000,7 +2000,10 @@ int main (int argc, char *argv[])
 			// Remember all the files and directories within directory 
 			while ((ent = readdir (dir)) != NULL) {
 			  if((strcmp(ent->d_name,".") != 0) && (strcmp(ent->d_name,"..") != 0)){
-			    inputs.push_back(string(inputs[i]) + "/" + string(ent->d_name));
+			    stat(ent->d_name,&s);
+			    int timediff = time(0) - s.st_mtime;
+			    if (timediff > 60)
+			      inputs.push_back(string(inputs[i]) + "/" + string(ent->d_name));
 			  }
 			}
 			closedir (dir);
@@ -2016,9 +2019,13 @@ int main (int argc, char *argv[])
 			}
 		      else
 			{
-		      tracefiles.push_back(inputs[i]);
-		      if (!first)
-			newfiles.push_back(inputs[i]);
+			  int timediff = time(0) - s.st_mtime;
+			  if (timediff > 60)
+			    {
+			      tracefiles.push_back(inputs[i]);
+			      if (!first)
+				newfiles.push_back(inputs[i]);
+			    }
 			}
 		    }
 		  // Ignore other file types
@@ -2052,6 +2059,7 @@ int main (int argc, char *argv[])
 		}
 	      
 	      started = 1;
+	      startfile = 0;
 	      
 	      // Now read from file
 	      char cmd[MAXLINE];
