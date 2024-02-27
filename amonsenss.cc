@@ -2080,7 +2080,7 @@ int main (int argc, char *argv[])
 		{
 		  if (!strcmp(format, "nf"))
 		    {
-		      sprintf(cmd,"nfdump -r %s -o pipe 2>/dev/null", file);
+		      sprintf(cmd,"unxz -c %s | nfdump -r - -o pipe 2>/dev/null", file);
 		    }
 		  else if (!strcmp(format, "ft"))
 		    {
