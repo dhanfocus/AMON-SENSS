@@ -1,0 +1,12 @@
+ddos-configs:
+  slack_info:
+    slack_url: https://hooks.slack.com/services/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
+
+  write_ddos_json:
+    location: ddos-logs/slackNotify/
+  
+  read_ddos_logs:
+    location: ddos-logs/ddosAlert/
+  
+  prefix_definitions:
+    location: prefix.csv

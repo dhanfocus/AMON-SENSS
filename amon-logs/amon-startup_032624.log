@@ -1,0 +1,15 @@
+{"timestamp": "2024-03-26 16:02:23", "level": "INFO", "output": "stdout", "message": "Starting DDOS tasks at 16:02"}
+{"timestamp": "2024-03-26 16:02:23", "level": "INFO", "output": "stdout", "message": "No amonsenss process running."}
+{"timestamp": "2024-03-26 16:02:23", "level": "INFO", "output": "stdout", "message": "No /usr/bin/perl /home/sharebe/AMON-SENSS/sum_alerts process running."}
+{"timestamp": "2024-03-26 16:02:23", "level": "INFO", "output": "stdout", "message": "No /home/sharebe/AMON-SENSS/env/bin/python3 /home/sharebe/AMON-SENSS/ddosNotify.py process running."}
+{"timestamp": "2024-03-26 16:02:25", "level": "INFO", "output": "stdout", "message": "DDOS tasks started successfully."}
+{"timestamp": "2024-03-26 16:03:25", "level": "INFO", "output": "stdout", "message": "Starting DDOS tasks at 16:03"}
+{"timestamp": "2024-03-26 16:03:25", "level": "INFO", "output": "stdout", "message": "No amonsenss process running."}
+{"timestamp": "2024-03-26 16:03:25", "level": "INFO", "output": "stdout", "message": "Killing /usr/bin/perl /home/sharebe/AMON-SENSS/sum_alerts with PID 27038"}
+{"timestamp": "2024-03-26 16:03:25", "level": "INFO", "output": "stdout", "message": "No /home/sharebe/AMON-SENSS/env/bin/python3 /home/sharebe/AMON-SENSS/ddosNotify.py process running."}
+{"timestamp": "2024-03-26 16:03:27", "level": "INFO", "output": "stdout", "message": "DDOS tasks started successfully."}
+{"timestamp": "2024-03-26 16:13:41", "level": "INFO", "output": "stdout", "message": "Starting DDOS tasks at 16:13"}
+{"timestamp": "2024-03-26 16:13:41", "level": "INFO", "output": "stdout", "message": "Killing amonsenss with PID 28169"}
+{"timestamp": "2024-03-26 16:13:41", "level": "INFO", "output": "stdout", "message": "Killing /usr/bin/perl /home/sharebe/AMON-SENSS/sum_alerts with PID 28170"}
+{"timestamp": "2024-03-26 16:13:41", "level": "INFO", "output": "stdout", "message": "No /home/sharebe/AMON-SENSS/env/bin/python3 /home/sharebe/AMON-SENSS/ddosNotify.py process running."}
+{"timestamp": "2024-03-26 16:13:43", "level": "INFO", "output": "stdout", "message": "DDOS tasks started successfully."}
