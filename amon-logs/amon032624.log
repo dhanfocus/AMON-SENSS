@@ -1,0 +1,600 @@
+Verbose 0
+Prefix 17.20.0.0/16
+Prefix 26.27.0.0/16
+Prefix 116.231.0.0/16
+Prefix 16.73.0.0/16
+Prefix 26.14.0.0/16
+Prefix 17.77.0.0/16
+Reading config file amonsenss.config ...Parm interval val 3
+Parm file_interval val 3600
+Parm attack_low val 30
+Parm attack_high val 60
+Parm min_train val 3600
+Parm numstd val 5
+Parm filter_thresh val 0.25
+Parm min_oci val 1000
+Parm cusum_thresh val 30
+Files to read /home/sharebe/data/attack1/nfcapd.202008181200.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181205.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181210.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181215.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181220.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181225.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181230.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181235.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181240.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181245.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181250.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181255.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181300.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181305.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181310.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181315.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181320.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181325.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181330.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181335.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181340.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181345.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181350.xz
+Files to read /home/sharebe/data/attack1/nfcapd.202008181355.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182100.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182105.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182110.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182115.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182120.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182125.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182130.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182135.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182140.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182145.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182150.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182155.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182200.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182205.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182210.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182215.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182220.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182225.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182230.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182235.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182240.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182245.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182250.xz
+Files to read /home/sharebe/data/attack2/nfcapd.202008182255.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191800.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191805.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191810.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191815.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191820.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191825.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191830.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191835.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191840.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191845.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191850.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191855.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191900.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191905.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191910.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191915.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191920.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191925.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191930.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191935.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191940.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191945.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191950.xz
+Files to read /home/sharebe/data/attack3/nfcapd.202008191955.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211400.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211405.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211410.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211415.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211420.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211425.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211430.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211435.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211440.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211445.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211450.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211455.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211500.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211505.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211510.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211515.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211520.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211525.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211530.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211535.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211540.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211545.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211550.xz
+Files to read /home/sharebe/data/attack4/nfcapd.202008211555.xz
+Reading from /home/sharebe/data/attack1/nfcapd.202008181200.xz
+Reading from file
+Processed 1000000, 1M in 3
+Read 1251568 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181200.xz time 1711469626 flows 1251564 training 0 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181205.xz
+Reading from file
+Processed 2000000, 1M in 3
+Read 1243449 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181205.xz time 1711469631 flows 2495009 training 0 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181210.xz
+Reading from file
+Processed 3000000, 1M in 1
+Read 1272382 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181210.xz time 1711469635 flows 3767387 training 0 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181215.xz
+Reading from file
+Processed 4000000, 1M in 1
+Processed 5000000, 1M in 3
+Read 1277360 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181215.xz time 1711469639 flows 5044743 training 0 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181220.xz
+Reading from file
+Processed 6000000, 1M in 4
+Read 1269148 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181220.xz time 1711469644 flows 6313887 training 0 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181225.xz
+Reading from file
+Processed 7000000, 1M in 2
+Read 1249568 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181225.xz time 1711469648 flows 7563451 training 0 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181230.xz
+Reading from file
+Processed 8000000, 1M in 1
+Read 1257431 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181230.xz time 1711469652 flows 8820878 training 0 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181235.xz
+Reading from file
+Processed 9000000, 1M in 1
+Processed 10000000, 1M in 3
+Read 1243431 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181235.xz time 1711469656 flows 10064305 training 0 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181240.xz
+Reading from file
+Processed 11000000, 1M in 3
+Read 1259362 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181240.xz time 1711469660 flows 11323663 training 0 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181245.xz
+Reading from file
+Processed 12000000, 1M in 3
+Read 1260596 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181245.xz time 1711469665 flows 12584255 training 0 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181250.xz
+Reading from file
+Processed 13000000, 1M in 1
+Read 1274943 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181250.xz time 1711469669 flows 13859194 training 0 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181255.xz
+Reading from file
+Processed 14000000, 1M in 0
+Processed 15000000, 1M in 4
+Training has completed
+Read 1287146 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181255.xz time 1711469673 flows 15146336 training 1 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181300.xz
+Reading from file
+Processed 16000000, 1M in 4
+Read 1293734 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181300.xz time 1711469679 flows 16440066 training 1 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181305.xz
+Reading from file
+Processed 17000000, 1M in 2
+Read 1306429 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181305.xz time 1711469684 flows 17746491 training 1 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181310.xz
+Reading from file
+Processed 18000000, 1M in 2
+Processed 19000000, 1M in 4
+Read 1324197 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181310.xz time 1711469690 flows 19070684 training 1 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181315.xz
+Reading from file
+Processed 20000000, 1M in 4
+Read 1321731 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181315.xz time 1711469696 flows 20392411 training 1 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181320.xz
+Reading from file
+Processed 21000000, 1M in 2
+Read 1319599 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181320.xz time 1711469701 flows 21712006 training 1 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181325.xz
+Reading from file
+Processed 22000000, 1M in 2
+Processed 23000000, 1M in 4
+Read 1315320 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181325.xz time 1711469707 flows 23027322 training 1 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181330.xz
+Reading from file
+Processed 24000000, 1M in 4
+Read 1340039 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181330.xz time 1711469713 flows 24367357 training 1 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181335.xz
+Reading from file
+Processed 25000000, 1M in 2
+Read 1333808 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181335.xz time 1711469718 flows 25701161 training 1 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181340.xz
+Reading from file
+Processed 26000000, 1M in 2
+Processed 27000000, 1M in 4
+Read 1341784 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181340.xz time 1711469724 flows 27042941 training 1 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181345.xz
+Reading from file
+Processed 28000000, 1M in 4
+Read 1350615 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181345.xz time 1711469730 flows 28393552 training 1 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181350.xz
+Reading from file
+Processed 29000000, 1M in 2
+Read 1333155 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181350.xz time 1711469736 flows 29726703 training 1 shuffle 1
+Reading from /home/sharebe/data/attack1/nfcapd.202008181355.xz
+Reading from file
+Processed 30000000, 1M in 1
+Processed 31000000, 1M in 4
+Read 1334885 lines
+Done with the file /home/sharebe/data/attack1/nfcapd.202008181355.xz time 1711469741 flows 31061584 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182100.xz
+Reading from file
+Read 841002 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182100.xz time 1711469745 flows 31902582 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182105.xz
+Reading from file
+Processed 32000000, 1M in 1
+Read 831145 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182105.xz time 1711469749 flows 32733723 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182110.xz
+Reading from file
+Processed 33000000, 1M in 2
+Read 841347 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182110.xz time 1711469754 flows 33575066 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182115.xz
+Reading from file
+Processed 34000000, 1M in 2
+Read 847500 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182115.xz time 1711469758 flows 34422562 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182120.xz
+Reading from file
+Processed 35000000, 1M in 3
+Read 836204 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182120.xz time 1711469762 flows 35258762 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182125.xz
+Reading from file
+Processed 36000000, 1M in 4
+Read 824805 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182125.xz time 1711469766 flows 36083563 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182130.xz
+Reading from file
+Read 845824 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182130.xz time 1711469770 flows 36929383 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182135.xz
+Reading from file
+Processed 37000000, 1M in 1
+Read 847952 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182135.xz time 1711469774 flows 37777331 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182140.xz
+Reading from file
+Processed 38000000, 1M in 1
+Read 849509 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182140.xz time 1711469778 flows 38626836 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182145.xz
+Reading from file
+Processed 39000000, 1M in 2
+Read 849515 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182145.xz time 1711469783 flows 39476347 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182150.xz
+Reading from file
+Processed 40000000, 1M in 2
+Read 850082 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182150.xz time 1711469787 flows 40326425 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182155.xz
+Reading from file
+Processed 41000000, 1M in 3
+Read 845783 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182155.xz time 1711469791 flows 41172204 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182200.xz
+Reading from file
+Processed 42000000, 1M in 4
+Read 861412 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182200.xz time 1711469795 flows 42033612 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182205.xz
+Reading from file
+Read 871714 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182205.xz time 1711469800 flows 42905322 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182210.xz
+Reading from file
+Processed 43000000, 1M in 0
+Read 864279 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182210.xz time 1711469804 flows 43769597 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182215.xz
+Reading from file
+Processed 44000000, 1M in 1
+Read 855300 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182215.xz time 1711469808 flows 44624893 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182220.xz
+Reading from file
+Processed 45000000, 1M in 2
+Read 846197 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182220.xz time 1711469812 flows 45471086 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182225.xz
+Reading from file
+Processed 46000000, 1M in 3
+Read 839341 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182225.xz time 1711469816 flows 46310423 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182230.xz
+Reading from file
+Processed 47000000, 1M in 4
+Read 852374 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182230.xz time 1711469820 flows 47162793 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182235.xz
+Reading from file
+Processed 48000000, 1M in 5
+Read 848437 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182235.xz time 1711469825 flows 48011226 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182240.xz
+Reading from file
+Read 831705 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182240.xz time 1711469829 flows 48842927 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182245.xz
+Reading from file
+Processed 49000000, 1M in 1
+Read 840376 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182245.xz time 1711469833 flows 49683299 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182250.xz
+Reading from file
+Processed 50000000, 1M in 2
+Read 825877 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182250.xz time 1711469837 flows 50509172 training 1 shuffle 1
+Reading from /home/sharebe/data/attack2/nfcapd.202008182255.xz
+Reading from file
+Processed 51000000, 1M in 3
+Read 816754 lines
+Done with the file /home/sharebe/data/attack2/nfcapd.202008182255.xz time 1711469841 flows 51325922 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191800.xz
+Reading from file
+Processed 52000000, 1M in 3
+Read 914009 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191800.xz time 1711469845 flows 52239927 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191805.xz
+Reading from file
+Processed 53000000, 1M in 4
+Read 911098 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191805.xz time 1711469849 flows 53151021 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191810.xz
+Reading from file
+Processed 54000000, 1M in 4
+Read 879118 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191810.xz time 1711469853 flows 54030135 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191815.xz
+Reading from file
+Read 877785 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191815.xz time 1711469857 flows 54907916 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191820.xz
+Reading from file
+Processed 55000000, 1M in 1
+Read 875917 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191820.xz time 1711469861 flows 55783829 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191825.xz
+Reading from file
+Processed 56000000, 1M in 1
+Read 875183 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191825.xz time 1711469865 flows 56659008 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191830.xz
+Reading from file
+Processed 57000000, 1M in 2
+Read 872874 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191830.xz time 1711469870 flows 57531878 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191835.xz
+Reading from file
+Processed 58000000, 1M in 2
+Read 859395 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191835.xz time 1711469874 flows 58391269 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191840.xz
+Reading from file
+Processed 59000000, 1M in 2
+Read 844872 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191840.xz time 1711469877 flows 59236137 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191845.xz
+Reading from file
+Processed 60000000, 1M in 4
+Read 848637 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191845.xz time 1711469881 flows 60084770 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191850.xz
+Reading from file
+Read 845548 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191850.xz time 1711469885 flows 60930314 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191855.xz
+Reading from file
+Processed 61000000, 1M in 1
+Read 842848 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191855.xz time 1711469889 flows 61773158 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191900.xz
+Reading from file
+Processed 62000000, 1M in 1
+Read 857101 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191900.xz time 1711469893 flows 62630255 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191905.xz
+Reading from file
+Processed 63000000, 1M in 2
+Read 873984 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191905.xz time 1711469897 flows 63504235 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191910.xz
+Reading from file
+Processed 64000000, 1M in 3
+Read 858925 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191910.xz time 1711469901 flows 64363156 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191915.xz
+Reading from file
+Processed 65000000, 1M in 3
+Read 860169 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191915.xz time 1711469906 flows 65223321 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191920.xz
+Reading from file
+Processed 66000000, 1M in 3
+Read 867256 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191920.xz time 1711469910 flows 66090573 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191925.xz
+Reading from file
+Read 864395 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191925.xz time 1711469914 flows 66954964 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191930.xz
+Reading from file
+Processed 67000000, 1M in 0
+Read 868162 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191930.xz time 1711469918 flows 67823122 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191935.xz
+Reading from file
+Processed 68000000, 1M in 1
+Read 864401 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191935.xz time 1711469922 flows 68687519 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191940.xz
+Reading from file
+Processed 69000000, 1M in 1
+Read 863982 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191940.xz time 1711469926 flows 69551497 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191945.xz
+Reading from file
+Processed 70000000, 1M in 2
+Read 865358 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191945.xz time 1711469930 flows 70416851 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191950.xz
+Reading from file
+Processed 71000000, 1M in 2
+Read 871073 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191950.xz time 1711469934 flows 71287920 training 1 shuffle 1
+Reading from /home/sharebe/data/attack3/nfcapd.202008191955.xz
+Reading from file
+Processed 72000000, 1M in 3
+Read 859783 lines
+Done with the file /home/sharebe/data/attack3/nfcapd.202008191955.xz time 1711469938 flows 72147699 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211400.xz
+Reading from file
+Processed 73000000, 1M in 4
+Read 1380903 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211400.xz time 1711469944 flows 73528598 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211405.xz
+Reading from file
+Processed 74000000, 1M in 2
+Read 1359385 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211405.xz time 1711469950 flows 74887979 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211410.xz
+Reading from file
+Processed 75000000, 1M in 0
+Processed 76000000, 1M in 5
+Read 1382852 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211410.xz time 1711469956 flows 76270827 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211415.xz
+Reading from file
+Processed 77000000, 1M in 3
+Read 1384207 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211415.xz time 1711469962 flows 77655030 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211420.xz
+Reading from file
+Processed 78000000, 1M in 1
+Processed 79000000, 1M in 5
+Read 1363304 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211420.xz time 1711469968 flows 79018330 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211425.xz
+Reading from file
+Processed 80000000, 1M in 4
+Read 1349779 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211425.xz time 1711469974 flows 80368105 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211430.xz
+Reading from file
+Processed 81000000, 1M in 3
+Read 1361805 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211430.xz time 1711469980 flows 81729906 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211435.xz
+Reading from file
+Processed 82000000, 1M in 1
+Processed 83000000, 1M in 4
+Read 1340350 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211435.xz time 1711469986 flows 83070252 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211440.xz
+Reading from file
+Processed 84000000, 1M in 4
+Read 1344458 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211440.xz time 1711469992 flows 84414706 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211445.xz
+Reading from file
+Processed 85000000, 1M in 2
+Read 1342935 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211445.xz time 1711469998 flows 85757637 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211450.xz
+Reading from file
+Processed 86000000, 1M in 1
+Processed 87000000, 1M in 4
+Read 1326180 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211450.xz time 1711470004 flows 87083813 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211455.xz
+Reading from file
+Processed 88000000, 1M in 4
+Read 1319565 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211455.xz time 1711470009 flows 88403374 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211500.xz
+Reading from file
+Processed 89000000, 1M in 3
+Read 1294770 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211500.xz time 1711470015 flows 89698140 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211505.xz
+Reading from file
+Processed 90000000, 1M in 2
+Read 1274389 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211505.xz time 1711470021 flows 90972525 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211510.xz
+Reading from file
+Processed 91000000, 1M in 0
+Processed 92000000, 1M in 5
+Read 1304045 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211510.xz time 1711470027 flows 92276566 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211515.xz
+Reading from file
+Processed 93000000, 1M in 3
+Read 1294942 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211515.xz time 1711470033 flows 93571504 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211520.xz
+Reading from file
+Processed 94000000, 1M in 2
+Read 1274046 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211520.xz time 1711470038 flows 94845546 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211525.xz
+Reading from file
+Processed 95000000, 1M in 1
+Processed 96000000, 1M in 5
+Read 1268051 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211525.xz time 1711470045 flows 96113593 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211530.xz
+Reading from file
+Processed 97000000, 1M in 4
+Read 1256794 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211530.xz time 1711470051 flows 97370383 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211535.xz
+Reading from file
+Processed 98000000, 1M in 2
+Read 1244895 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211535.xz time 1711470056 flows 98615274 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211540.xz
+Reading from file
+Processed 99000000, 1M in 2
+Read 1272100 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211540.xz time 1711470062 flows 99887370 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211545.xz
+Reading from file
+Processed 100000000, 1M in 0
+Processed 101000000, 1M in 5
+Read 1266487 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211545.xz time 1711470067 flows 101153853 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211550.xz
+Reading from file
+Processed 102000000, 1M in 4
+Read 1262194 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211550.xz time 1711470073 flows 102416043 training 1 shuffle 1
+Reading from /home/sharebe/data/attack4/nfcapd.202008211555.xz
+Reading from file
+Processed 103000000, 1M in 3
+Read 1248292 lines
+Done with the file /home/sharebe/data/attack4/nfcapd.202008211555.xz time 1711470079 flows 103664331 training 1 shuffle 1
