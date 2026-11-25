@@ -1,0 +1,9 @@
+# Expected output of the original C++ AMON-SENSS for case nf-reload.
+# Regenerate with tests/golden/README.md; do not edit by hand.
+alerts_lines 4837
+alerts_fnv 2cbbfaac98ee34bb
+dump_fnv 2a1079547e92f39e
+sig 1942 src port 53 and dst ip 10.0.0.5 and proto udp
+sig 1941 dst ip 10.1.2.3 and dst port 80 and proto tcp and flags 0
+sig 645 dst ip 10.1.2.3 and dst port 80 and proto tcp and flags 2
+sig 308 dst ip 10.0.0.9 and proto icmp

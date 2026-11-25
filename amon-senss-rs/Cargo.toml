@@ -1,0 +1,39 @@
+[package]
+name = "amon-senss"
+version = "1.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "GPL-2.0-only"
+description = "Scalable DDoS attack detection and filtering-signature generation from NetFlow, Flowride or pcap input (Rust port of AMON-SENSS)"
+authors = [
+    "Jelena Mirkovic <sunshine@isi.edu>",
+    "Michalis Kallitsis <mgkallit@merit.edu>",
+    "Stilian Stoev <sstoev@umich.edu>",
+    "George Michailidis <gmichail@ufl.edu>",
+]
+readme = "README.md"
+keywords = ["ddos", "netflow", "anomaly-detection", "security"]
+categories = ["command-line-utilities", "network-programming"]
+
+[[bin]]
+name = "amonsenss"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+pcap-file = "2"
+signal-hook = "0.3"
+pcap = { version = "2", optional = true }
+
+[features]
+# Live capture from a network interface (-F plive). Needs libpcap at build time.
+live = ["dep:pcap"]
+
+[profile.dev]
+# The detector touches ~300k bins per interval; unoptimised builds are too slow
+# to run the golden tests comfortably. Overflow checks stay on.
+opt-level = 1
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

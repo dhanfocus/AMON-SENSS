@@ -1,0 +1,6 @@
+#!/usr/bin/bash
+
+num=`cat anum`
+mv alerts.txt alerts.txt.$num
+num=$(($num+1))
+echo $num > anum

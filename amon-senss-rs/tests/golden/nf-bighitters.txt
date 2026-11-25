@@ -1,0 +1,8 @@
+# Expected output of the original C++ AMON-SENSS for case nf-bighitters.
+# Regenerate with tests/golden/README.md; do not edit by hand.
+alerts_lines 3741
+alerts_fnv 106e0ad6d6c85859
+dump_fnv e4f891c8b9988f25
+sig 1700 src port 53 and dst ip 10.1.2.3 and proto udp
+sig 1675 dst ip 10.0.0.5 and dst port 25 and proto tcp and flags 0
+sig 365 dst ip 10.0.0.5 and dst port 25 and proto tcp and flags 2

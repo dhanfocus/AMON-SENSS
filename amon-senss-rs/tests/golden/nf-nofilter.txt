@@ -1,0 +1,5 @@
+# Expected output of the original C++ AMON-SENSS for case nf-nofilter.
+# Regenerate with tests/golden/README.md; do not edit by hand.
+alerts_lines 1
+alerts_fnv 6236e491251dd584
+dump_fnv 0f3abdb20814cf6d

@@ -1,0 +1,7 @@
+# Expected output of the original C++ AMON-SENSS for case pcap-packets.
+# Regenerate with tests/golden/README.md; do not edit by hand.
+alerts_lines 1605
+alerts_fnv 792db3c54b755a40
+dump_fnv df0852cd60b5a642
+sig 1468 src port 53 and dst ip 10.0.0.5 and proto udp
+sig 136 dst ip 10.0.0.9 and proto icmp

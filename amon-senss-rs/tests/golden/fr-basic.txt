@@ -1,0 +1,10 @@
+# Expected output of the original C++ AMON-SENSS for case fr-basic.
+# Regenerate with tests/golden/README.md; do not edit by hand.
+alerts_lines 6202
+alerts_fnv cc145375bfbe19d6
+dump_fnv 885b7ae9c8d13510
+sig 2175 dst ip 10.1.2.3 and dst port 80 and proto tcp and flags 0
+sig 1904 src port 53 and dst ip 10.0.0.5 and proto udp
+sig 851 dst ip 10.0.0.9 and dst port 2048
+sig 847 src port 0 and dst ip 10.0.0.9
+sig 424 src port 0 and dst ip 10.0.0.9 and dst port 2048
