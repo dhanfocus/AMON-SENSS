@@ -37,7 +37,9 @@ files must be regenerated.
    | `nf-reload` | `synth -- nf basic` | in the `nf-basic` directory afterwards: `amonsenss-ref -l -S -F nf -f < input` |
    | `nf-bighitters` | `synth -- nf bighitters` | `amonsenss-ref -S -F nf -f < input` |
    | `fr-basic` | `synth -- fr basic` | `amonsenss-ref -S -F fr -f < input` |
-   | `pcap-packets` | `synth -- pcap packets` saved as `input/packets.pcap`, mtime at least a minute old | `AMON_ONCE=1 amonsenss-ref -r input -F pcap -f` |
+   | `fr-folder` | `synth -- fr-part basic K 3` for K = 0, 1, 2, gzipped (`gzip -n`) as `in/b/fr-01.gz`, `in/a/fr-02.gz`, `in/fr-03.gz`; files **and folders** with mtime at least a minute old (the original checks the parent folder's mtime) | `AMON_ONCE=1 amonsenss-ref -r in -F fr -f` |
+   | `fr-startend` | as `fr-folder` | `AMON_ONCE=1 amonsenss-ref -r in -F fr -f -s fr-01 -e fr-02` |
+   | `pcap-packets` | `synth -- pcap packets` saved as `packets.pcap`, mtime at least a minute old | `AMON_ONCE=1 amonsenss-ref -r packets.pcap -F pcap -f` |
 
 3. Write each `<case>.txt` from the resulting `alerts.txt` and `as.dump` in
    the format of the existing files. Hashes are 64-bit FNV-1a over the whole

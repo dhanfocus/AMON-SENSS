@@ -610,3 +610,21 @@ min_oci=10\n\
 cusum_thresh=30\n";
 
 pub const PREFIXES: &str = "10.0.0.0/24\n10.1.0.0/16\n";
+
+/// Part `part` (0-based) of `parts` equal time slices of a scenario, for
+/// multi-file inputs.
+pub fn time_slice(sc: &Scenario, recs: &[Rec], part: u64, parts: u64) -> Vec<Rec> {
+    let len = sc.seconds.div_ceil(parts);
+    let (from, to) = (T0 + part * len, T0 + (part + 1) * len);
+    recs.iter()
+        .filter(|r| {
+            let t = match r {
+                Rec::Flow(f) => f.t1,
+                Rec::Arp(t, _) => *t,
+                Rec::Junk(_) => from,
+            };
+            (from..to).contains(&t)
+        })
+        .cloned()
+        .collect()
+}

@@ -1,6 +1,7 @@
 //! Write deterministic synthetic traffic to stdout.
 //!
 //! Usage: `cargo run --example synth -- <nf|fr|pcap|config|prefixes> [scenario]`
+//! or `synth -- fr-part <scenario> <part> <parts>`
 //!
 //! Used to regenerate the golden files in `tests/golden/` with the original
 //! C++ implementation; see `tests/golden/README.md`.
@@ -21,6 +22,17 @@ fn main() {
         "nf" => synth::to_nfdump(&synth::generate(&synth::scenario(name))).into_bytes(),
         "fr" => synth::to_flowride(&synth::generate(&synth::scenario(name))).into_bytes(),
         "pcap" => synth::to_pcap(&synth::generate(&synth::scenario(name))),
+        "fr-part" => {
+            // fr-part <scenario> <part> <parts>
+            let arg = |k: usize| {
+                args.get(k)
+                    .and_then(|v| v.parse().ok())
+                    .expect("part and parts")
+            };
+            let sc = synth::scenario(name);
+            let recs = synth::generate(&sc);
+            synth::to_flowride(&synth::time_slice(&sc, &recs, arg(3), arg(4))).into_bytes()
+        }
         other => {
             eprintln!("unknown output {other}; expected nf, fr, pcap, config or prefixes");
             std::process::exit(2);

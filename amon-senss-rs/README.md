@@ -9,16 +9,32 @@ Today's traffic is often one-way and has many anomalies that AMON-SENSS picks
 up. Use the `read_alerts` script to narrow the output down to attacks with high
 confidence.
 
-The port is behaviour-compatible with the C++ original (version 1.1). Given the
-same input and configuration, it writes a byte-identical `alerts.txt` and
-`as.dump`. The test suite checks this against output recorded from the
-original (see [Testing](#testing)). It is also about three times faster and
-needs far less memory, because it keeps one interval of counters per layer
-instead of a queue of 100.
+The port follows the C++ original (version 1.1) function by function. How
+closely its output matches was checked as follows:
+
+* **Against a deterministic build of the original.** This is the original
+  with its per-interval worker thread joined instead of detached, and
+  `calloc` instead of `malloc`. On the same input and configuration the port
+  writes a byte-identical `alerts.txt` and `as.dump`, and the same console log
+  apart from wall-clock times. This holds
+  for nfdump, Flowride (stdin and folder) and pcap input, for `-l`, `-s`/`-e`,
+  and for four different parameter sets. The test suite checks it with
+  recorded reference output (see [Testing](#testing)).
+* **Against the unmodified original.** Its detached worker thread races with
+  flow processing, so its output changes from run to run. In three runs per
+  test scenario it reported exactly the same attack signatures as the port.
+  Its alert counts varied and were always at or below the port's (3–9% fewer
+  in total).
+
+On the two larger test scenarios (33k and 27k flow records), the port ran in
+11 s and 16 s with a peak of 145 MB and 260 MB of memory. The unmodified
+original took 57 s and 78 s and used 1.5 GB and 2.7 GB. The saving comes
+mostly from keeping one interval of counters per layer instead of a queue of
+100, and from not rescanning every bin for each alert.
 
 ## Building
 
-Requires Rust 1.75 or newer.
+Requires Rust 1.85 or newer (developed and tested with 1.97).
 
 ```bash
 cargo build --release
@@ -31,7 +47,8 @@ The binary is `target/release/amonsenss`. Live capture from an interface
 cargo build --release --features live
 ```
 
-Reading pcap/pcapng files does not need libpcap.
+Reading pcap files does not need libpcap. Live capture and pcapng files are
+implemented but have only been compiled, not tested on real traffic.
 
 ## Configuration
 
@@ -105,12 +122,15 @@ has the form:
 attackID layer time START bin rate packets signature
 ```
 
-When `alerts.txt` exceeds 10 MB, AMON-SENSS runs `./rotate` (see `scripts/`)
-to rotate it.
+When `alerts.txt` exceeds 10 MB, AMON-SENSS runs `./rotate` from the current
+directory to rotate it. Copy `scripts/rotate` (and create an empty `anum` file)
+in the directory you run from; otherwise a warning is printed and the file keeps
+growing.
 
 Press Ctrl-C to stop: the current record is finished, the trained statistics
-are saved to `as.dump`, and the program exits. A second Ctrl-C exits right
-away.
+are saved to `as.dump`, and the program exits with status 2. With `-S` on an
+idle input, this happens when the next line arrives; a second Ctrl-C exits right
+away without saving.
 
 To get condensed START/END messages for attacks:
 
@@ -126,7 +146,8 @@ To understand how AMON-SENSS works, see
 
 ## Differences from the C++ original
 
-These don't change `alerts.txt` or `as.dump` for well-formed input:
+These don't change `alerts.txt` or `as.dump` for input the original handled
+correctly:
 
 * **Single-threaded.** The per-interval detection work ran on a detached
   thread that raced with flow processing. It now runs synchronously at each
@@ -138,9 +159,17 @@ These don't change `alerts.txt` or `as.dump` for well-formed input:
 * **`/31` and `/32` prefixes** in `localprefs.txt` cover their enclosing /30.
   In the original they were undefined behaviour: a /32 made it insert about
   a billion entries.
+* **nfdump 1.7 support.** nfdump 1.7 writes each `-o pipe` timestamp as a
+  single millisecond field instead of `sec|msec`. The original misparses
+  these lines: with nfdump 1.7.3 it read every record but never finished
+  training. The port recognises both layouts by their field count. On
+  identical flows read through nfdump 1.7.3, and the same flows given in
+  the old layout, it produces identical output.
 * **Directory scanning** checks the age of each file by its full path. The
-  original called `stat()` on the bare entry name, relative to the current
-  directory. Files and folders are discovered in sorted order.
+  original called `stat()` on the bare entry name, which fails, so it used
+  the enclosing folder's modification time. Any folder changed in the last
+  60 seconds therefore hid its files. Files and folders are discovered in
+  sorted order.
 * **External decoders** (`nfdump`, `ft2nfdump`, `gunzip`) get the file name
   as an argument instead of through a shell command string.
 * **`-F plive`** captures live from an interface (with `--features live`). In

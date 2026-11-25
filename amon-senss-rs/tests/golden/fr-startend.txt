@@ -1,0 +1,7 @@
+# Expected output of the original C++ AMON-SENSS for case fr-startend.
+# Regenerate with tests/golden/README.md; do not edit by hand.
+alerts_lines 4080
+alerts_fnv 2c20a8feee73d999
+dump_fnv 53062a2eb260d334
+sig 2175 dst ip 10.1.2.3 and dst port 80 and proto tcp and flags 0
+sig 1904 src port 53 and dst ip 10.0.0.5 and proto udp

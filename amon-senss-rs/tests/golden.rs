@@ -231,3 +231,69 @@ fn missing_input_is_an_error() {
         .unwrap();
     assert!(!out.status.success());
 }
+
+/// Three gzipped Flowride files in nested folders, named so that file-name
+/// order differs from folder order. Returns false if `gzip` is unavailable.
+fn flowride_folder(dir: &Path) -> bool {
+    let sc = synth::scenario("basic");
+    let recs = synth::generate(&sc);
+    let old = SystemTime::now() - Duration::from_secs(3600);
+    for (part, rel) in [
+        (0, "in/b/fr-01.gz"),
+        (1, "in/a/fr-02.gz"),
+        (2, "in/fr-03.gz"),
+    ] {
+        let path = dir.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let text = synth::to_flowride(&synth::time_slice(&sc, &recs, part, 3));
+        let child = Command::new("gzip")
+            .args(["-n", "-c"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn();
+        let Ok(mut child) = child else {
+            eprintln!("gzip not available; skipping");
+            return false;
+        };
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(text.as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success());
+        fs::write(&path, out.stdout).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+    }
+    true
+}
+
+#[test]
+fn flowride_folder_via_gunzip() {
+    let dir = workdir("fr-folder", false);
+    if flowride_folder(&dir) {
+        run(&dir, &["-r", "in", "-F", "fr", "-f", "--once"], None);
+        check("fr-folder", &dir);
+    }
+}
+
+#[test]
+fn flowride_folder_start_and_end_file() {
+    let dir = workdir("fr-startend", false);
+    if flowride_folder(&dir) {
+        run(
+            &dir,
+            &[
+                "-r", "in", "-F", "fr", "-f", "--once", "-s", "fr-01", "-e", "fr-02",
+            ],
+            None,
+        );
+        check("fr-startend", &dir);
+    }
+}

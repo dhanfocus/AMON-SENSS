@@ -85,34 +85,87 @@ fn now() -> i64 {
         .unwrap_or(0)
 }
 
+/// Layout of an `nfdump -o pipe` line.
+///
+/// nfdump up to 1.6 writes start and end time as `sec|msec|sec|msec`
+/// (23 separators for IPv4 and IPv6 alike); this is the layout the original
+/// parsed. nfdump 1.7 writes each time as a single millisecond field, so the
+/// line has 21 separators and every later field moves down by two.
+struct NfLayout {
+    v17: bool,
+}
+
+impl NfLayout {
+    fn of(f: &Fields) -> NfLayout {
+        NfLayout {
+            v17: f.delimiters() == 21,
+        }
+    }
+
+    /// Index of a field given its nfdump 1.6 `delimiters[]` index (>= 4).
+    fn idx(&self, old: usize) -> usize {
+        if self.v17 {
+            old - 2
+        } else {
+            old
+        }
+    }
+
+    /// Flow start time.
+    fn start(&self, f: &Fields) -> f64 {
+        if self.v17 {
+            strtol(f.d(0)) as f64 / 1000.0
+        } else {
+            strtol(f.d(0)) as f64 + strtol(f.d(1)) as f64 / 1000.0
+        }
+    }
+
+    /// Flow end time (also the record's timestamp).
+    fn end(&self, f: &Fields) -> f64 {
+        if self.v17 {
+            strtol(f.d(1)) as f64 / 1000.0
+        } else {
+            strtol(f.d(2)) as f64 + atoi(f.d(3)) as f64 / 1000.0
+        }
+    }
+}
+
 impl Detector {
     /// `amonProcessingNfdump()`: one `nfdump -o pipe` line, e.g.
-    /// `2|1453485557|768|1453485557|768|6|0|0|0|2379511808|44694|0|0|0|2792759296|995|0|0|0|0|2|0|1|40`.
+    /// `2|1453485557|768|1453485557|768|6|0|0|0|2379511808|44694|0|0|0|2792759296|995|0|0|0|0|2|0|1|40`
+    /// (nfdump 1.6) or
+    /// `2|1453485557768|1453485557768|6|0|0|0|2379511808|44694|0|0|0|2792759296|995|0|0|0|0|2|0|1|40`
+    /// (nfdump 1.7).
     pub fn process_nfdump(&mut self, f: &Fields) {
-        let start = strtol(f.d(0)) as f64 + strtol(f.d(1)) as f64 / 1000.0;
-        let end = strtol(f.d(2)) as f64 + strtol(f.d(3)) as f64 / 1000.0;
+        let lay = NfLayout::of(f);
+        let start = lay.start(f);
+        let end = if lay.v17 {
+            lay.end(f)
+        } else {
+            strtol(f.d(2)) as f64 + strtol(f.d(3)) as f64 / 1000.0
+        };
         let dur = (end - start).clamp(0.0, 3600.0);
-        let proto = atoi(f.d(4));
-        let flags = atoi(f.d(19));
+        let proto = atoi(f.d(lay.idx(4)));
+        let flags = atoi(f.d(lay.idx(19)));
         let mut flow = Flow {
-            src: strtol(f.d(8)) as u32,
-            sport: atoi(f.d(9)) as i16,
-            dst: strtol(f.d(13)) as u32,
-            dport: atoi(f.d(14)) as i16,
+            src: strtol(f.d(lay.idx(8))) as u32,
+            sport: atoi(f.d(lay.idx(9))) as i16,
+            dst: strtol(f.d(lay.idx(13))) as u32,
+            dport: atoi(f.d(lay.idx(14))) as i16,
             proto: proto as u8,
             flags,
             ..Flow::default()
         };
         flow.slocal = self.is_local(flow.src);
         flow.dlocal = self.is_local(flow.dst);
-        let bytes = atoi(f.d(22));
+        let bytes = atoi(f.d(lay.idx(22)));
         self.processed_bytes = self.processed_bytes.wrapping_add(bytes as i64);
         if !flow.slocal && !flow.dlocal {
             self.nonlocal_flows += 1;
             return;
         }
         self.local_flows += 1;
-        let pkts = atoi(f.d(21));
+        let pkts = atoi(f.d(lay.idx(21)));
         let pkts = cvt_i32(pkts as f64 / (dur + 1.0)).wrapping_add(1);
         let bytes = cvt_i32(bytes as f64 / (dur + 1.0)).wrapping_add(1);
 
@@ -439,7 +492,7 @@ impl Reader<'_> {
                         continue;
                     }
                     let f = Fields::split(&buf, b'|');
-                    let epoch = strtol(f.d(2)) as f64 + atoi(f.d(3)) as f64 / 1000.0;
+                    let epoch = NfLayout::of(&f).end(&f);
                     if self.admit(epoch, &mut progress_start) {
                         self.det.process_nfdump(&f);
                     }
@@ -509,6 +562,20 @@ mod tests {
         assert_eq!(f.d(21), b"1");
         assert_eq!(f.d(22), b"40\n");
         assert_eq!(f.d(40), b"");
+    }
+
+    #[test]
+    fn nfdump_layouts_agree() {
+        let v16 = b"2|1453485557|768|1453485558|5|6|0|0|0|2379511808|44694|0|0|0|2792759296|995|0|0|0|0|2|0|7|40\n";
+        let v17 = b"2|1453485557768|1453485558005|6|0|0|0|2379511808|44694|0|0|0|2792759296|995|0|0|0|0|2|0|7|40\n";
+        let (a, b) = (Fields::split(v16, b'|'), Fields::split(v17, b'|'));
+        let (la, lb) = (NfLayout::of(&a), NfLayout::of(&b));
+        assert!(!la.v17 && lb.v17);
+        assert_eq!(la.start(&a), lb.start(&b));
+        assert_eq!(la.end(&a), lb.end(&b));
+        for old in [4, 8, 9, 13, 14, 19, 21, 22] {
+            assert_eq!(a.d(la.idx(old)), b.d(lb.idx(old)), "field {old}");
+        }
     }
 
     #[test]
